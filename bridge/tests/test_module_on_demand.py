@@ -16,6 +16,7 @@ import codex_app_server  # noqa: E402
 import codex_bridge  # noqa: E402
 from bambu_client import BambuConfigStore, BambuService  # noqa: E402
 from codex_bridge import (  # noqa: E402
+    CodexCheckStore,
     CUSTOM_DEFAULTS,
     resolve_ffmpeg,
     validate_custom_config,
@@ -24,6 +25,30 @@ from codex_bridge import (  # noqa: E402
 
 
 class ModuleOnDemandTests(unittest.TestCase):
+    def test_codex_check_result_is_persisted_for_the_next_page_load(self):
+        result = {
+            "ok": True,
+            "checked_at_epoch": 1788256800,
+            "account": {"logged_in": True, "email": "user@example.com", "plan_type": "plus"},
+            "checks": {"rate_limits": True, "usage": True, "threads": True},
+        }
+        with tempfile.TemporaryDirectory(dir=BRIDGE.parent / ".codx") as temporary:
+            path = Path(temporary) / "codex-check.json"
+            CodexCheckStore(path).write(result)
+
+            self.assertEqual(CodexCheckStore(path).read(), result)
+
+    def test_frontend_restores_saved_codex_check_from_overview(self):
+        script = (BRIDGE / "web" / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn("overview.codex_check", script)
+
+    def test_codex_check_copy_matches_requested_text(self):
+        html = (BRIDGE / "web" / "index.html").read_text(encoding="utf-8")
+
+        self.assertIn("检查本机 Codex CLI、App Server、登录账户、额度、用量和任务读取是否正常。", html)
+        self.assertNotIn("手动检查本机 Codex CLI", html)
+
     def test_first_run_defaults_keep_codex_and_bambu_off(self):
         self.assertEqual(
             validate_module_config(None),

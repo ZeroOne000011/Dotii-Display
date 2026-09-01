@@ -793,6 +793,37 @@ class StateStore:
                     os.unlink(temporary_name)
 
 
+class CodexCheckStore:
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.lock = threading.RLock()
+
+    def read(self) -> dict[str, Any] | None:
+        with self.lock:
+            if not self.path.is_file():
+                return None
+            result = json.loads(self.path.read_text(encoding="utf-8"))
+            if not isinstance(result, dict):
+                raise ValueError("saved Codex check result must be an object")
+            return result
+
+    def write(self, result: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(result, dict):
+            raise ValueError("Codex check result must be an object")
+        with self.lock:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            handle, temporary_name = tempfile.mkstemp(prefix="codex-check-", suffix=".json", dir=self.path.parent)
+            try:
+                with os.fdopen(handle, "w", encoding="utf-8") as stream:
+                    json.dump(result, stream, ensure_ascii=False, indent=2)
+                    stream.write("\n")
+                os.replace(temporary_name, self.path)
+            finally:
+                if os.path.exists(temporary_name):
+                    os.unlink(temporary_name)
+        return result
+
+
 class CustomConfigStore:
     def __init__(self, path: Path) -> None:
         self.path = path
@@ -1119,6 +1150,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 **runtime,
             },
             "snapshot": snapshot,
+            "codex_check": self.bridge.codex_check.read(),
             "dotii_config": self.bridge.dotii.read(),
             "display_config": self.bridge.display.read(),
             "bambu_config": self.bridge.bambu_config.public(),
@@ -1204,6 +1236,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
                     self.bridge.codex_command,
                 )
                 result["collector"] = self.bridge.runtime.snapshot()
+                self.bridge.codex_check.write(result)
                 self._send_json(HTTPStatus.OK, result)
             except (OSError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as error:
                 self._send_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
@@ -1446,6 +1479,7 @@ class BridgeServer(ThreadingHTTPServer):
         modules: ModuleConfigStore,
         dotii: DotiiConfigStore,
         display: DisplayConfigStore,
+        codex_check: CodexCheckStore,
         assets: CustomAssetStore,
         bambu_config: BambuConfigStore,
         bambu: BambuService,
@@ -1464,6 +1498,7 @@ class BridgeServer(ThreadingHTTPServer):
         self.modules = modules
         self.dotii = dotii
         self.display = display
+        self.codex_check = codex_check
         self.assets = assets
         self.bambu_config = bambu_config
         self.bambu = bambu
@@ -1523,6 +1558,7 @@ def main() -> None:
     modules = ModuleConfigStore(runtime_folder / "modules.json")
     dotii = DotiiConfigStore(runtime_folder / "dotii.json")
     display = DisplayConfigStore(runtime_folder / "display.json")
+    codex_check = CodexCheckStore(runtime_folder / "codex-check.json")
     assets = CustomAssetStore(runtime_folder)
     bambu_config = BambuConfigStore(runtime_folder / "bambu.json")
     bambu = BambuService(
@@ -1535,7 +1571,7 @@ def main() -> None:
     bluetooth.start()
     firmware = FirmwareFlasher(project_root(), runtime_folder)
     server = BridgeServer((arguments.host, arguments.port), store, token, runtime, collector_restart,
-                          custom, modules, dotii, display, assets, bambu_config, bambu,
+                          custom, modules, dotii, display, codex_check, assets, bambu_config, bambu,
                           bluetooth, firmware, runtime_folder, application_root(), arguments.codex_command)
     if arguments.app_server:
         threading.Thread(

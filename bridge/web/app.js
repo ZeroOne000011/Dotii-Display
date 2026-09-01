@@ -978,6 +978,7 @@ function renderCodexTaskSwitcher(tasks) {
 
 function renderOverview(overview) {
   state.overview = overview;
+  if (!state.codexChecking && overview.codex_check) state.codexCheck = overview.codex_check;
   const snapshot = overview.snapshot || {};
   const codex = snapshot.codex || {};
   const tasks = Array.isArray(codex.tasks) && codex.tasks.length ? codex.tasks : [codex.task || {}];
