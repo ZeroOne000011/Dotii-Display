@@ -1,0 +1,31 @@
+dependencies:
+  espressif/button:
+    public: true
+    version: 4.*
+  espressif/esp_lcd_touch:
+    public: true
+    version: 1.*
+  espressif/esp_lv_decoder:
+    public: true
+    version: 0.*
+  espressif/esp_lv_fs:
+    public: true
+    version: 1.*
+  espressif/freetype:
+    public: true
+    version: 2.*
+  espressif/knob:
+    public: true
+    version: 1.*
+  idf: '>=5.5'
+  lvgl/lvgl:
+    version: '>=8,<10'
+description: LVGL adapter with unified display management, tearing control, thread
+  safety, and optional filesystem/decoder/FreeType support.
+issues: https://github.com/espressif/esp-iot-solution/issues
+repository: git://github.com/espressif/esp-iot-solution.git
+repository_info:
+  commit_sha: 24e1d162eed2c461d9938274444938dc1ab88ee1
+  path: components/display/tools/esp_lvgl_adapter
+url: https://github.com/espressif/esp-iot-solution/tree/master/components/display/tools/esp_lvgl_adapter
+version: 0.6.2

@@ -1,0 +1,6 @@
+dependencies:
+  espressif/freetype:
+    version: '*'
+  espressif/libpng:
+    version: '*'
+  joltwallet/littlefs: ~1.22.3

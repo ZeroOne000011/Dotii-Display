@@ -1,0 +1,12 @@
+*.bin binary
+*.elf binary
+*.map binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.gif binary
+*.pdf binary
+*.zip binary
+*.exe binary
+*.dll binary

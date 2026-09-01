@@ -1,0 +1,709 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dotii 管理中心</title>
+  <link rel="icon" href="/assets/dotii.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/markdown.js" defer></script>
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="app-header">
+      <div class="brand-block">
+        <span class="brand-mark" aria-hidden="true"><img src="/assets/dotii.svg" alt=""></span>
+        <div>
+          <h1>Dotii 管理中心</h1>
+          <p>设备设置及数据预览</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <div class="bridge-state" id="bridge-state" data-state="loading">
+          <span class="state-dot" aria-hidden="true"></span>
+          <span id="bridge-state-label">正在连接</span>
+        </div>
+        <button class="quiet-button" id="refresh-button" type="button">立即刷新</button>
+      </div>
+    </header>
+
+    <nav class="module-nav" aria-label="模块">
+      <button class="module-tab active" type="button" data-panel="codex" aria-selected="true">
+        <span class="nav-icon codex-icon" aria-hidden="true"></span>
+        <span>Codex</span>
+        <span class="module-meta" id="codex-nav-state">读取中</span>
+      </button>
+      <button class="module-tab" type="button" data-panel="bambu" aria-selected="false">
+        <img src="/assets/bambulab.svg" alt="">
+        <span>Bambu</span>
+        <span class="module-meta" id="bambu-nav-state">读取中</span>
+      </button>
+      <button class="module-tab" type="button" data-panel="custom" aria-selected="false">
+        <span class="nav-icon custom-icon" aria-hidden="true"></span>
+        <span>自定义</span>
+        <span class="module-meta" id="custom-nav-state">读取中</span>
+      </button>
+      <button class="module-tab" type="button" data-panel="dotii" aria-selected="false">
+        <img src="/assets/dotii.svg" alt="">
+        <span>Dotii</span>
+        <span class="module-meta" id="dotii-nav-state">读取中</span>
+      </button>
+      <button class="module-tab system-tab" type="button" data-panel="system" aria-selected="false">
+        <span class="nav-icon settings-icon" aria-hidden="true"></span>
+        <span>设置</span>
+      </button>
+    </nav>
+
+    <main>
+      <section class="panel active" id="panel-codex" aria-labelledby="codex-heading">
+        <div class="section-heading">
+          <div>
+            <h2 id="codex-heading">Codex</h2>
+            <p>查看额度和当前任务的最新状态。</p>
+          </div>
+        </div>
+
+        <div class="module-content" id="codex-content">
+        <div class="codex-overview" id="codex-overview">
+          <article class="usage-panel" id="usage-panel">
+            <div class="quota-overview">
+              <div class="quota-item quota-five-hour" id="five-hour-quota" hidden>
+                <div class="usage-ring usage-ring-five-hour" id="five-hour-ring">
+                  <div class="usage-ring-inner">
+                    <span>5 小时剩余</span>
+                    <strong id="five-hour-value">--</strong>
+                    <small id="five-hour-plan">仅 Plus</small>
+                  </div>
+                </div>
+                <p class="quota-reset"><span>重置时间</span><strong id="five-hour-reset-date">--</strong></p>
+              </div>
+              <div class="quota-item quota-weekly">
+                <div class="usage-ring" id="usage-ring">
+                  <div class="usage-ring-inner">
+                    <span>周剩余</span>
+                    <strong id="weekly-value">--</strong>
+                    <small id="weekly-plan">正在读取</small>
+                  </div>
+                </div>
+                <p class="quota-reset" id="weekly-reset-inline" hidden><span>重置时间</span><strong id="weekly-reset-inline-value">--</strong></p>
+              </div>
+            </div>
+            <div class="usage-caption">
+              <span id="snapshot-source">等待更新</span>
+              <time id="snapshot-time">尚未更新</time>
+            </div>
+          </article>
+
+          <div class="metric-grid" aria-label="Codex 概览">
+            <article class="metric primary-metric" id="metric-task">
+              <span>任务状态</span>
+              <strong id="task-status">正在读取</strong>
+            </article>
+            <article class="metric" id="metric-token">
+              <span>近 7 日 Token</span>
+              <strong id="weekly-tokens">--</strong>
+              <small id="weekly-token-period">等待用量统计</small>
+            </article>
+            <article class="metric" id="metric-reset">
+              <span>额度重置</span>
+              <strong id="reset-date">--</strong>
+            </article>
+            <article class="metric" id="metric-message">
+              <span>我的消息</span>
+              <strong id="message-count">--</strong>
+              <small id="conversation-title">正在读取任务</small>
+            </article>
+          </div>
+        </div>
+
+        <div class="task-switcher" id="codex-task-switcher" aria-label="正在进行的任务" hidden></div>
+
+        <article class="task-panel">
+          <div class="task-title-row">
+            <div>
+              <span class="field-label">当前任务</span>
+              <h3 id="task-title">正在读取任务</h3>
+            </div>
+            <span class="duration" id="task-duration">--</span>
+          </div>
+          <div class="conversation-grid">
+            <div class="message-block user-message">
+              <span>最近用户消息</span>
+              <div class="markdown-body" id="last-user-message">暂无内容</div>
+            </div>
+            <div class="message-block assistant-message">
+              <span id="codex-message-heading">Codex 中间消息</span>
+              <div class="markdown-body" id="codex-message-stream">暂无内容</div>
+            </div>
+          </div>
+        </article>
+
+        </div>
+
+        <section class="module-preferences codex-preferences" aria-labelledby="codex-preferences-heading">
+          <div class="module-preferences-heading">
+            <div><h3 id="codex-preferences-heading">Codex 设置</h3><p>管理 Dotii 上的 Codex 页面和电脑端数据连接。</p></div>
+            <label class="module-switch">
+              <span>启用功能</span>
+              <input id="codex-enabled" type="checkbox">
+              <span class="switch-track" aria-hidden="true"></span>
+            </label>
+          </div>
+          <article class="dependency-panel module-preference-card codex-ui-panel">
+            <div class="dependency-heading">
+              <div>
+                <h3>Codex 页面样式</h3>
+                <p>选择 Dotii 和 Dotii 管理中心中显示的剩余额度。</p>
+              </div>
+              <span class="subscription-badge">仅 Plus 订阅有 5 小时限额</span>
+            </div>
+            <div class="codex-ui-setting">
+              <span class="time-field-label" id="codex-ui-label">Dotii 主页面</span>
+              <div class="ui-select" data-ui-select="codex-ui">
+                <input id="codex-ui" type="hidden" value="classic">
+                <button class="ui-select-trigger" id="codex-ui-trigger" type="button" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="codex-ui-label codex-ui-value">
+                  <span id="codex-ui-value">仅显示周剩余</span><span class="ui-select-chevron" aria-hidden="true"></span>
+                </button>
+                <div class="ui-select-menu" role="listbox" aria-labelledby="codex-ui-label" hidden>
+                  <button type="button" role="option" data-value="classic">仅显示周剩余</button>
+                  <button type="button" role="option" data-value="dual_limit">显示 5 小时及周剩余</button>
+                </div>
+              </div>
+              <small id="codex-ui-state" role="status" aria-live="polite">仅显示周剩余额度</small>
+            </div>
+          </article>
+          <article class="dependency-panel module-preference-card codex-health-panel" id="codex-health-panel">
+            <div class="dependency-heading">
+              <div>
+                <h3>Codex 运行检测</h3>
+                <p>手动检查本机 Codex CLI、App Server、登录账户、额度、用量和任务读取是否正常。</p>
+              </div>
+              <span class="dependency-badge" id="codex-check-badge" data-state="idle">尚未检测</span>
+            </div>
+            <div class="dependency-details codex-check-details">
+              <div><span>Codex CLI</span><strong id="codex-check-cli">--</strong></div>
+              <div><span>运行来源</span><strong id="codex-check-source">--</strong></div>
+              <div><span>App Server</span><strong id="codex-check-server">--</strong></div>
+              <div><span>后台采集器</span><strong id="codex-check-collector">--</strong></div>
+              <div><span>ChatGPT 账户</span><strong id="codex-check-account">--</strong></div>
+              <div><span>订阅类型</span><strong id="codex-check-plan">--</strong></div>
+              <div><span>额度与用量</span><strong id="codex-check-usage">--</strong></div>
+              <div><span>任务列表</span><strong id="codex-check-threads">--</strong></div>
+            </div>
+            <p class="dependency-status" id="codex-check-detail" role="status" aria-live="polite">启用 Codex 后可运行只读检测。</p>
+            <div class="dependency-actions codex-check-actions">
+              <button class="primary-button" id="codex-check" type="button">开始检测</button>
+              <time id="codex-check-time">尚未检测</time>
+            </div>
+          </article>
+        </section>
+      </section>
+
+      <section class="panel" id="panel-bambu" aria-labelledby="bambu-heading" hidden>
+        <div class="section-heading">
+          <div>
+            <h2 id="bambu-heading">Bambu</h2>
+            <p>集中查看当前打印进度、设备状态和相机画面。</p>
+          </div>
+        </div>
+        <div class="module-content" id="bambu-content">
+          <article class="bambu-empty" id="bambu-empty">
+            <img src="/assets/bambulab.svg" alt="">
+            <h3>添加你的 Bambu 打印机</h3>
+            <p>连接后即可在这里查看打印进度、相机画面和设备状态。</p>
+            <button class="primary-button" id="bambu-empty-settings" type="button">添加打印机</button>
+          </article>
+          <article class="bambu-card bambu-live bambu-dashboard" id="bambu-dashboard" hidden>
+            <div class="card-heading bambu-dashboard-heading">
+              <div><span class="dashboard-eyebrow">当前任务</span><h3 id="bambu-dashboard-name">Bambu Lab</h3><p id="bambu-updated">尚未收到数据</p></div>
+              <div class="dashboard-heading-state"><span class="status-pill" id="bambu-dashboard-connection">正在连接</span><strong class="bambu-progress" id="bambu-progress">--</strong></div>
+            </div>
+            <div class="bambu-progress-track" aria-hidden="true"><span id="bambu-progress-fill"></span></div>
+            <div class="bambu-dashboard-grid">
+              <div class="dashboard-visual">
+              <div class="bambu-camera"><img id="bambu-camera" alt="打印机相机画面" hidden><div id="bambu-camera-empty"><img src="/assets/bambulab.svg" alt=""><span>相机画面暂不可用</span></div></div>
+                <div class="dashboard-file"><span>打印文件</span><strong id="bambu-filename">--</strong></div>
+              </div>
+              <div class="dashboard-summary">
+              <dl class="bambu-metrics">
+                <div><dt>状态</dt><dd id="bambu-status">离线</dd></div><div><dt>剩余</dt><dd id="bambu-remaining">--</dd></div>
+                <div class="wide"><dt>预计完成</dt><dd id="bambu-finish">--</dd></div>
+                <div><dt>层数</dt><dd id="bambu-layer">--</dd></div><div><dt>耗材</dt><dd id="bambu-filament">--</dd></div>
+                <div><dt>喷嘴</dt><dd id="bambu-nozzle">--</dd></div><div><dt>热床</dt><dd id="bambu-bed">--</dd></div>
+              </dl>
+              <div class="bambu-actions"><button class="quiet-button" id="bambu-pause" type="button">暂停</button><button class="danger-button" id="bambu-stop" type="button">停止打印</button></div>
+              <p class="error-detail" id="bambu-error" hidden></p>
+              </div>
+            </div>
+          </article>
+        </div>
+        <section class="module-preferences bambu-preferences" aria-labelledby="bambu-preferences-heading">
+          <div class="module-preferences-heading">
+            <div><h3 id="bambu-preferences-heading">Bambu 设置</h3><p>使用局域网连接打印机，配置会安全保存在 Dotii 管理中心。</p></div>
+            <label class="module-switch">
+              <span>启用功能</span>
+              <input id="bambu-enabled" type="checkbox">
+              <span class="switch-track" aria-hidden="true"></span>
+            </label>
+          </div>
+          <form class="bambu-card bambu-config module-preference-card" id="bambu-form">
+            <div class="card-heading"><div><h3>Bambu 打印机</h3><p>添加或更换连接到 Dotii 的打印机。</p></div><span class="status-pill" id="bambu-connection">尚未添加</span></div>
+            <div class="bambu-fields settings-bambu-fields">
+              <label><span>打印机名称</span><input id="bambu-name" maxlength="40" autocomplete="off" placeholder="例如 工作室 P1S"></label>
+              <label><span>局域网 IP</span><input id="bambu-host" inputmode="decimal" autocomplete="off" placeholder="192.168.1.120"></label>
+              <label><span>打印机序列号</span><input id="bambu-serial" maxlength="32" autocomplete="off" placeholder="设备设置中查看"></label>
+              <label><span>局域网访问码</span><input id="bambu-access-code" type="password" maxlength="64" autocomplete="new-password" placeholder="留空表示不修改"></label>
+            </div>
+            <p class="network-note"><strong>保持连接稳定</strong><span>建议在路由器中为打印机设置DHCP地址保留或将IP与MAC地址绑定，避免IP变化后连接中断。</span></p>
+            <label class="bambu-camera-toggle"><input id="bambu-camera-enabled" type="checkbox"><span>显示打印机相机画面</span></label>
+            <div class="form-actions"><button class="primary-button" type="submit">保存并连接</button><button class="quiet-button" id="bambu-reconnect" type="button">重新连接</button></div>
+          </form>
+        </section>
+      </section>
+
+      <section class="panel" id="panel-custom" aria-labelledby="custom-heading" hidden>
+        <div class="section-heading">
+          <div>
+            <h2 id="custom-heading">自定义界面</h2>
+            <p>设计属于你的 Dotii 屏幕画面。</p>
+          </div>
+        </div>
+
+        <div class="custom-settings" id="custom-settings">
+        <div class="custom-editor">
+          <form class="custom-form" id="custom-form">
+            <section class="custom-control-section" aria-labelledby="custom-text-heading">
+              <div class="control-section-heading">
+                <div><h3 id="custom-text-heading">文字内容</h3><p>每项都能独立编辑、换色或隐藏。</p></div>
+              </div>
+              <div class="text-setting-list">
+                <article class="text-setting" data-text-setting="title">
+                  <div class="text-setting-heading">
+                    <label for="custom-title">页面标题</label>
+                    <label class="visibility-toggle"><input id="custom-title-visible" type="checkbox" checked><span>显示</span></label>
+                  </div>
+                  <div class="text-setting-body">
+                    <div class="text-setting-controls">
+                      <input id="custom-title" name="title" type="text" maxlength="16" autocomplete="off" placeholder="可以留空">
+                      <label class="compact-color"><span>颜色</span><input id="custom-title-color" type="color" value="#8E9B97" aria-label="页面标题颜色"></label>
+                    </div>
+                    <small>建议不超过 8 个汉字</small>
+                  </div>
+                </article>
+                <article class="text-setting" data-text-setting="value">
+                  <div class="text-setting-heading">
+                    <label for="custom-value">主内容</label>
+                    <label class="visibility-toggle"><input id="custom-value-visible" type="checkbox" checked><span>显示</span></label>
+                  </div>
+                  <div class="text-setting-body">
+                    <div class="text-setting-controls">
+                      <input id="custom-value" name="value" type="text" maxlength="32" autocomplete="off" placeholder="可以留空">
+                      <label class="compact-color"><span>颜色</span><input id="custom-value-color" type="color" value="#F2C66D" aria-label="主内容颜色"></label>
+                    </div>
+                    <small>画面中最醒目的文字</small>
+                  </div>
+                </article>
+                <article class="text-setting" data-text-setting="body">
+                  <div class="text-setting-heading">
+                    <label for="custom-body">说明文字</label>
+                    <label class="visibility-toggle"><input id="custom-body-visible" type="checkbox" checked><span>显示</span></label>
+                  </div>
+                  <div class="text-setting-body">
+                    <div class="text-setting-controls text-setting-controls-wide">
+                      <textarea id="custom-body" name="body" rows="3" maxlength="85" placeholder="可以留空"></textarea>
+                      <label class="compact-color"><span>颜色</span><input id="custom-body-color" type="color" value="#D6DFDC" aria-label="说明文字颜色"></label>
+                    </div>
+                    <small>内容较长时会自动换行</small>
+                  </div>
+                </article>
+                <article class="text-setting" data-text-setting="footer">
+                  <div class="text-setting-heading">
+                    <label for="custom-footer">页脚</label>
+                    <label class="visibility-toggle"><input id="custom-footer-visible" type="checkbox" checked><span>显示</span></label>
+                  </div>
+                  <div class="text-setting-body">
+                    <div class="text-setting-controls">
+                      <input id="custom-footer" name="footer" type="text" maxlength="32" autocomplete="off" placeholder="可以留空">
+                      <label class="compact-color"><span>颜色</span><input id="custom-footer-color" type="color" value="#8E9B97" aria-label="页脚颜色"></label>
+                    </div>
+                    <small>适合放日期、状态或一句短语</small>
+                  </div>
+                </article>
+              </div>
+            </section>
+
+            <section class="custom-control-section ring-section" aria-labelledby="custom-ring-heading">
+              <div class="control-section-heading ring-heading-row">
+                <div><h3 id="custom-ring-heading">外侧圆环</h3><p>为最终画面增加一圈渐变强调色。</p></div>
+                <label class="visibility-toggle"><input id="custom-ring-enabled" type="checkbox" checked><span>显示</span></label>
+              </div>
+              <div class="ring-colors" id="custom-ring-colors">
+                <label class="color-control" for="custom-ring-start"><span>起始色</span><input id="custom-ring-start" type="color" value="#F2C66D"></label>
+                <label class="color-control" for="custom-ring-end"><span>结束色</span><input id="custom-ring-end" type="color" value="#5DA9FF"></label>
+              </div>
+            </section>
+
+            <section class="custom-control-section" aria-labelledby="custom-image-heading">
+              <div class="control-section-heading">
+                <div><h3 id="custom-image-heading">画面素材</h3><p>选择内置表情，或上传图片后先裁切再应用。</p></div>
+              </div>
+              <div class="expression-grid" aria-label="内置可爱表情">
+                <button class="expression-option" type="button" data-expression="/assets/expressions/happy.png" data-expression-name="暖暖笑"><img src="/assets/expressions/happy.png" alt="暖暖笑表情"><span>暖暖笑</span></button>
+                <button class="expression-option" type="button" data-expression="/assets/expressions/curious.png" data-expression-name="好奇心"><img src="/assets/expressions/curious.png" alt="好奇心表情"><span>好奇心</span></button>
+                <button class="expression-option" type="button" data-expression="/assets/expressions/sleepy.png" data-expression-name="困困眼"><img src="/assets/expressions/sleepy.png" alt="困困眼表情"><span>困困眼</span></button>
+                <button class="expression-option" type="button" data-expression="/assets/expressions/excited.png" data-expression-name="闪闪亮"><img src="/assets/expressions/excited.png" alt="闪闪亮表情"><span>闪闪亮</span></button>
+              </div>
+              <div class="image-upload-field">
+                <div class="upload-heading"><label for="custom-image-file">上传自己的图片</label><span>支持 PNG / JPEG</span></div>
+                <input id="custom-image-file" type="file" accept="image/png,image/jpeg">
+                <small id="custom-image-state">选择图片后可调整位置和大小。</small>
+                <div class="image-controls">
+                  <label class="check-row"><input id="custom-background-image" type="checkbox"><span>显示图片</span></label>
+                  <div class="image-fit-field">
+                    <span class="time-field-label" id="custom-image-fit-label">填充方式</span>
+                    <div class="ui-select" data-ui-select="custom-image-fit">
+                      <input id="custom-image-fit" type="hidden" value="cover">
+                      <button class="ui-select-trigger" type="button" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="custom-image-fit-label custom-image-fit-value">
+                        <span id="custom-image-fit-value">铺满屏幕</span><span class="ui-select-chevron" aria-hidden="true"></span>
+                      </button>
+                      <div class="ui-select-menu" role="listbox" aria-labelledby="custom-image-fit-label" hidden>
+                        <button type="button" role="option" data-value="cover">铺满屏幕</button>
+                        <button type="button" role="option" data-value="contain">完整显示</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div class="field-group opacity-field">
+                  <label for="custom-image-opacity">图片亮度 <output id="custom-image-opacity-output">70%</output></label>
+                  <input id="custom-image-opacity" type="range" min="0" max="100" value="70">
+                </div>
+              </div>
+            </section>
+
+            <div class="custom-actions">
+              <button class="primary-button" id="save-custom" type="submit">保存并同步</button>
+              <span class="save-state" id="custom-save-state" role="status" aria-live="polite">尚未修改</span>
+            </div>
+          </form>
+
+          <div class="device-preview-block" aria-label="Dotii 自定义页面预览">
+            <div class="preview-heading"><div><h3>实时预览</h3><p>Dotii 屏幕效果</p></div></div>
+            <canvas class="custom-device-preview" id="custom-device-preview" width="466" height="466" aria-label="Dotii 屏幕预览"></canvas>
+            <p class="preview-note">保存后，Dotii 会自动显示这张画面。</p>
+          </div>
+        </div>
+
+        </div>
+
+        <section class="module-preferences" aria-labelledby="custom-preferences-heading">
+          <div class="module-preferences-heading">
+            <div><h3 id="custom-preferences-heading">自定义界面设置</h3></div>
+            <label class="module-switch">
+              <span>启用功能</span>
+              <input id="custom-enabled" type="checkbox" checked>
+              <span class="switch-track" aria-hidden="true"></span>
+            </label>
+          </div>
+          <div class="notice-line">关闭后保留当前画面内容，下次启用时可继续编辑和同步。</div>
+        </section>
+      </section>
+
+      <section class="panel" id="panel-dotii" aria-labelledby="dotii-heading" hidden>
+        <div class="section-heading">
+          <div>
+            <h2 id="dotii-heading">Dotii</h2>
+            <p>用表情回应任务状态和你的操作</p>
+          </div>
+        </div>
+
+        <div class="dotii-content" id="dotii-content">
+          <article class="dotii-stage" aria-labelledby="dotii-stage-title">
+            <div class="dotii-stage-copy">
+              <span class="dotii-kicker">当前表情</span>
+              <h3 id="dotii-stage-title">待机呼吸</h3>
+              <p id="dotii-stage-reason">正在读取 Dotii 状态。</p>
+              <button class="quiet-button" id="dotii-follow-live" type="button">跟随当前状态</button>
+            </div>
+            <div class="dotii-device" aria-label="Dotii 表情动画预览">
+              <img id="dotii-current-expression" src="/assets/expressions/dotii-idle-breath.webp" alt="Dotii 待机呼吸动画">
+            </div>
+          </article>
+
+          <section class="dotii-config-panel" aria-labelledby="dotii-config-heading">
+            <div class="dotii-library-heading">
+              <div>
+                <h3 id="dotii-config-heading">动画与状态</h3>
+                <p>Dotii 使用固定基础动画，Codex 和 Bambu 状态可自定义动画与持续时间。</p>
+              </div>
+              <span id="dotii-library-state" role="status" aria-live="polite">正在加载动画</span>
+            </div>
+            <form id="dotii-config-form">
+              <div class="dotii-config-list" id="dotii-config-list" aria-label="Dotii 动画状态映射"></div>
+              <div class="dotii-config-actions">
+                <p>不分配动画时显示 Dotii 空闲状态；选择“保持”会持续显示到状态变化。</p>
+                <div>
+                  <span id="dotii-config-save-state" role="status" aria-live="polite">配置已同步</span>
+                  <button class="primary-button" id="dotii-config-save" type="submit" disabled>保存动画设置</button>
+                </div>
+              </div>
+            </form>
+          </section>
+        </div>
+
+        <section class="module-preferences dotii-preferences" aria-labelledby="dotii-preferences-heading">
+          <div class="module-preferences-heading">
+            <div><h3 id="dotii-preferences-heading">Dotii 页面设置</h3></div>
+            <label class="module-switch">
+              <span>启用页面</span>
+              <input id="dotii-enabled" type="checkbox" checked>
+              <span class="switch-track" aria-hidden="true"></span>
+            </label>
+          </div>
+        </section>
+      </section>
+
+      <section class="panel" id="panel-system" aria-labelledby="system-heading" hidden>
+        <div class="section-heading">
+          <div>
+            <h2 id="system-heading">设置</h2>
+            <p>管理电脑端数据服务、本机网页和这台 Dotii。</p>
+          </div>
+        </div>
+
+        <div class="system-layout">
+          <section class="settings-group bridge-settings-group" aria-labelledby="bridge-settings-heading">
+            <div class="settings-group-heading">
+              <h3 id="bridge-settings-heading">Dotii 管理中心</h3>
+              <p>控制 Windows 启动方式并查看本机运行状态。</p>
+            </div>
+            <article class="settings-panel">
+              <h3>应用设置</h3>
+              <label class="setting-row">
+                <span><strong>登录 Windows 后自动启动</strong><small>让 Dotii 始终保持更新</small></span>
+                <input id="auto-start" type="checkbox">
+                <span class="switch-track" aria-hidden="true"></span>
+              </label>
+              <div class="runtime-row"><span>数据采集状态</span><strong id="collector-detail">正在连接</strong></div>
+              <div class="runtime-row"><span>本次在线时长</span><strong id="bridge-uptime">--</strong></div>
+              <div class="runtime-row"><span>管理页地址</span><strong id="local-url">正在获取</strong></div>
+            </article>
+          </section>
+
+          <section class="settings-group dotii-settings-group" aria-labelledby="dotii-settings-heading">
+            <div class="settings-group-heading">
+              <h3 id="dotii-settings-heading">Dotii</h3>
+              <p>调整屏幕行为、无线配网和固件维护。</p>
+            </div>
+            <div class="dotii-settings-grid">
+            <form class="settings-panel display-settings-panel settings-wide" id="display-form">
+              <h3>屏幕与睡眠</h3>
+              <label class="dock-angle-field" for="dock-angle">
+                <span>显示角度 <output id="dock-angle-output">84.0°</output></span>
+                <input id="dock-angle" type="range" min="80" max="100" step="0.1" value="84">
+              </label>
+              <div class="power-timeout-profiles">
+              <section class="power-timeout-profile" aria-labelledby="battery-timeout-heading">
+                <div class="power-timeout-heading"><span class="power-icon" aria-hidden="true">−</span><div><h4 id="battery-timeout-heading">使用电池时</h4><p>控制电池供电时的熄屏和睡眠时间。</p></div></div>
+                <div class="timeout-settings">
+                <div class="time-field">
+                  <span class="time-field-label" id="screen-off-timeout-label">无操作后熄屏</span>
+                  <div class="ui-select" data-ui-select="screen-off-timeout">
+                    <input id="screen-off-timeout" type="hidden" value="60">
+                    <button class="ui-select-trigger" id="screen-off-timeout-trigger" type="button" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="screen-off-timeout-label screen-off-timeout-value">
+                      <span id="screen-off-timeout-value">1 分钟</span><span class="ui-select-chevron" aria-hidden="true"></span>
+                    </button>
+                    <div class="ui-select-menu" role="listbox" aria-labelledby="screen-off-timeout-label" hidden>
+                      <button type="button" role="option" data-value="10">10 秒</button>
+                      <button type="button" role="option" data-value="30">30 秒</button>
+                      <button type="button" role="option" data-value="60">1 分钟</button>
+                      <button type="button" role="option" data-value="180">3 分钟</button>
+                      <button type="button" role="option" data-value="300">5 分钟</button>
+                      <button type="button" role="option" data-value="600">10 分钟</button>
+                      <button type="button" role="option" data-value="1800">30 分钟</button>
+                      <button type="button" role="option" data-value="0">永不</button>
+                    </div>
+                  </div>
+                </div>
+                <div class="time-field">
+                  <span class="time-field-label" id="sleep-timeout-label">无操作后进入低功耗睡眠</span>
+                  <div class="ui-select" data-ui-select="sleep-timeout">
+                    <input id="sleep-timeout" type="hidden" value="300">
+                    <button class="ui-select-trigger" id="sleep-timeout-trigger" type="button" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="sleep-timeout-label sleep-timeout-value">
+                      <span id="sleep-timeout-value">5 分钟</span><span class="ui-select-chevron" aria-hidden="true"></span>
+                    </button>
+                    <div class="ui-select-menu" role="listbox" aria-labelledby="sleep-timeout-label" hidden>
+                      <button type="button" role="option" data-value="10">10 秒</button>
+                      <button type="button" role="option" data-value="30">30 秒</button>
+                      <button type="button" role="option" data-value="60">1 分钟</button>
+                      <button type="button" role="option" data-value="180">3 分钟</button>
+                      <button type="button" role="option" data-value="300">5 分钟</button>
+                      <button type="button" role="option" data-value="600">10 分钟</button>
+                      <button type="button" role="option" data-value="1800">30 分钟</button>
+                      <button type="button" role="option" data-value="0">永不</button>
+                    </div>
+                  </div>
+                </div>
+                </div>
+              </section>
+              <section class="power-timeout-profile" aria-labelledby="charging-timeout-heading">
+                <div class="power-timeout-heading"><span class="power-icon charging" aria-hidden="true">+</span><div><h4 id="charging-timeout-heading">充电中</h4><p>连接电源时使用独立的熄屏和睡眠时间。</p></div></div>
+                <div class="timeout-settings">
+                  <div class="time-field">
+                    <span class="time-field-label" id="charging-screen-off-timeout-label">无操作后熄屏</span>
+                    <div class="ui-select" data-ui-select="charging-screen-off-timeout">
+                      <input id="charging-screen-off-timeout" type="hidden" value="60">
+                      <button class="ui-select-trigger" type="button" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="charging-screen-off-timeout-label charging-screen-off-timeout-value">
+                        <span id="charging-screen-off-timeout-value">1 分钟</span><span class="ui-select-chevron" aria-hidden="true"></span>
+                      </button>
+                      <div class="ui-select-menu" role="listbox" aria-labelledby="charging-screen-off-timeout-label" hidden>
+                        <button type="button" role="option" data-value="10">10 秒</button><button type="button" role="option" data-value="30">30 秒</button><button type="button" role="option" data-value="60">1 分钟</button><button type="button" role="option" data-value="180">3 分钟</button><button type="button" role="option" data-value="300">5 分钟</button><button type="button" role="option" data-value="600">10 分钟</button><button type="button" role="option" data-value="1800">30 分钟</button><button type="button" role="option" data-value="0">永不</button>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="time-field">
+                    <span class="time-field-label" id="charging-sleep-timeout-label">无操作后进入低功耗睡眠</span>
+                    <div class="ui-select" data-ui-select="charging-sleep-timeout">
+                      <input id="charging-sleep-timeout" type="hidden" value="300">
+                      <button class="ui-select-trigger" type="button" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="charging-sleep-timeout-label charging-sleep-timeout-value">
+                        <span id="charging-sleep-timeout-value">5 分钟</span><span class="ui-select-chevron" aria-hidden="true"></span>
+                      </button>
+                      <div class="ui-select-menu" role="listbox" aria-labelledby="charging-sleep-timeout-label" hidden>
+                        <button type="button" role="option" data-value="10">10 秒</button><button type="button" role="option" data-value="30">30 秒</button><button type="button" role="option" data-value="60">1 分钟</button><button type="button" role="option" data-value="180">3 分钟</button><button type="button" role="option" data-value="300">5 分钟</button><button type="button" role="option" data-value="600">10 分钟</button><button type="button" role="option" data-value="1800">30 分钟</button><button type="button" role="option" data-value="0">永不</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+              </div>
+              <div class="screen-off-page-setting">
+                <div class="screen-off-page-heading">
+                  <span class="time-field-label" id="screen-off-page-label">熄屏后显示页面</span>
+                  <small>到达上方的“无操作后熄屏”时间后显示；触摸或按键会返回熄屏前页面。</small>
+                </div>
+                <div class="ui-select" data-ui-select="screen-off-page">
+                  <input id="screen-off-page" type="hidden" value="none">
+                  <button class="ui-select-trigger" type="button" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="screen-off-page-label screen-off-page-value">
+                    <span id="screen-off-page-value">保持黑屏</span><span class="ui-select-chevron" aria-hidden="true"></span>
+                  </button>
+                  <div class="ui-select-menu" role="listbox" aria-labelledby="screen-off-page-label" hidden>
+                    <button type="button" role="option" data-value="none">保持黑屏</button>
+                    <button type="button" role="option" data-value="custom">自定义页面</button>
+                    <button type="button" role="option" data-value="dotii">Dotii 页面</button>
+                  </div>
+                </div>
+              </div>
+              <div class="display-settings-actions">
+                <button class="primary-button" type="submit">保存并同步</button>
+                <span id="display-save-state" role="status" aria-live="polite">使用默认角度</span>
+              </div>
+            </form>
+
+            <article class="dependency-panel firmware-panel">
+              <div class="dependency-heading">
+                <div>
+                  <h3>Dotii 蓝牙配网</h3>
+                  <p>发现附近设备，并安全下发局域网与管理中心配置。</p>
+                </div>
+                <span class="dependency-badge" id="bluetooth-badge" data-state="loading">检查中</span>
+              </div>
+              <div class="time-field firmware-port-field">
+                <span class="time-field-label" id="bluetooth-device-label">附近设备</span>
+                <div class="ui-select" data-ui-select="bluetooth-device">
+                  <input id="bluetooth-device" type="hidden" value="">
+                  <button class="ui-select-trigger" type="button" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="bluetooth-device-label bluetooth-device-value">
+                    <span id="bluetooth-device-value">尚未扫描</span><span class="ui-select-chevron" aria-hidden="true"></span>
+                  </button>
+                  <div class="ui-select-menu" role="listbox" aria-labelledby="bluetooth-device-label" hidden></div>
+                </div>
+              </div>
+              <div class="bambu-fields settings-bambu-fields bluetooth-fields">
+                <label><span>Wi-Fi 名称</span><input id="bluetooth-ssid" maxlength="32" autocomplete="off" placeholder="Dotii 要连接的 2.4 GHz 网络"></label>
+                <label><span>Wi-Fi 密码</span><input id="bluetooth-password" type="password" maxlength="64" autocomplete="new-password" placeholder="只发送给所选 Dotii"></label>
+              </div>
+              <p class="network-note"><strong>保持连接稳定</strong><span>Dotii 通过电脑的局域网地址连接 Dotii 管理中心，建议在路由器中为这台电脑设置 DHCP 地址保留或将 IP 与 MAC 地址绑定。</span></p>
+              <div class="dependency-status" id="bluetooth-detail">正在检查 Windows 蓝牙组件</div>
+              <div class="dependency-actions">
+                <button class="quiet-button" id="bluetooth-install" type="button">检查并修复</button>
+                <button class="quiet-button" id="bluetooth-scan" type="button">扫描 Dotii</button>
+                <button class="primary-button" id="bluetooth-configure" type="button" disabled>保存并连接</button>
+              </div>
+              <p class="bambu-help">Wi-Fi 密码不会保存在电脑端；配置成功后 Dotii 会重启并继续使用局域网高速数据链路。</p>
+            </article>
+
+            <article class="dependency-panel firmware-panel">
+              <div class="dependency-heading">
+                <div>
+                  <h3>Dotii 固件</h3>
+                  <p>识别已连接的设备并写入经过校验的正式固件。</p>
+                </div>
+                <span class="dependency-badge" id="firmware-badge" data-state="loading">检查中</span>
+              </div>
+              <div class="dependency-details firmware-details">
+                <div><span>固件版本</span><strong id="firmware-version">--</strong></div>
+                <div><span>固件大小</span><strong id="firmware-size">--</strong></div>
+                <div class="wide"><span>应用校验</span><code id="firmware-hash">--</code></div>
+              </div>
+              <div class="time-field firmware-port-field">
+                <span class="time-field-label" id="firmware-port-label">连接设备</span>
+                <div class="ui-select" data-ui-select="firmware-port">
+                  <input id="firmware-port" type="hidden" value="">
+                  <button class="ui-select-trigger" type="button" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="firmware-port-label firmware-port-value">
+                    <span id="firmware-port-value">正在扫描</span><span class="ui-select-chevron" aria-hidden="true"></span>
+                  </button>
+                  <div class="ui-select-menu" role="listbox" aria-labelledby="firmware-port-label" hidden></div>
+                </div>
+              </div>
+              <div class="firmware-progress" id="firmware-progress" aria-label="烧录进度"><span></span></div>
+              <div class="dependency-status" id="firmware-detail">正在检查固件和设备</div>
+              <div class="dependency-actions">
+                <button class="quiet-button" id="firmware-refresh" type="button">重新扫描</button>
+                <button class="primary-button" id="firmware-flash" type="button" disabled>烧录 Dotii</button>
+              </div>
+            </article>
+
+            <details class="connection-panel pairing-panel settings-wide">
+              <summary><span><strong>设备配对信息</strong><small>仅在连接新的 Dotii 时使用</small></span><span class="summary-action"><span class="summary-action-closed">查看</span><span class="summary-action-open">收起</span></span></summary>
+              <div class="pairing-content">
+                <label class="copy-field">
+                  <span>设备地址</span>
+                  <div><code id="device-url">正在获取</code><button type="button" data-copy="device-url">复制</button></div>
+                </label>
+                <label class="copy-field">
+                  <span>配对密钥</span>
+                  <div><code id="bridge-token">正在获取</code><button type="button" data-copy="bridge-token">复制</button></div>
+                </label>
+                <p class="security-note">请勿把配对信息发送给其他人。</p>
+              </div>
+            </details>
+            </div>
+          </section>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <dialog class="crop-dialog" id="custom-crop-dialog" aria-labelledby="crop-dialog-title">
+    <div class="crop-dialog-card">
+      <div class="crop-dialog-heading">
+        <div><h2 id="crop-dialog-title">裁切图片</h2><p>拖动图片调整位置，圆形区域就是 Dotii 屏幕中可见的范围。</p></div>
+        <button class="icon-close" id="cancel-crop-top" type="button" aria-label="关闭裁切">×</button>
+      </div>
+      <div class="crop-stage">
+        <canvas id="custom-crop-canvas" width="720" height="720" aria-label="圆形图片裁切预览"></canvas>
+      </div>
+      <label class="crop-zoom" for="custom-crop-zoom"><span>缩放</span><input id="custom-crop-zoom" type="range" min="100" max="300" value="100"><output id="custom-crop-zoom-output">100%</output></label>
+      <div class="crop-actions">
+        <button class="quiet-button" id="cancel-crop" type="button">取消</button>
+        <button class="primary-button" id="apply-crop" type="button">应用裁切</button>
+      </div>
+    </div>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <div class="fatal-state" id="fatal-state" hidden>
+    <strong>Dotii 暂时无法连接</strong>
+    <span>请稍后刷新，或从系统托盘重新打开 Dotii。</span>
+  </div>
+</body>
+</html>

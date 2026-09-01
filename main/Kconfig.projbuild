@@ -1,0 +1,41 @@
+menu "Dotii 桌面交互屏"
+
+    config STATE_DISPLAY_DEMO_MODE
+        bool "Show clearly labelled preview data when the bridge is unavailable"
+        default y
+
+    config STATE_DISPLAY_WIFI_SSID
+        string "Wi-Fi SSID"
+        default ""
+
+    config STATE_DISPLAY_WIFI_PASSWORD
+        string "Wi-Fi password"
+        default ""
+
+    config STATE_DISPLAY_BRIDGE_URL
+        string "Bridge snapshot URL"
+        default ""
+        help
+            Example: http://192.168.1.20:8787/api/v1/snapshot
+
+    config STATE_DISPLAY_BRIDGE_TOKEN
+        string "Bridge token"
+        default "change-me"
+
+    config STATE_DISPLAY_POLL_SECONDS
+        int "Bridge polling interval in seconds"
+        range 2 300
+        default 5
+
+    config STATE_DISPLAY_STALE_SECONDS
+        int "Mark source stale after seconds"
+        range 15 86400
+        default 120
+
+    config STATE_DISPLAY_TIMEZONE
+        string "POSIX timezone"
+        default "CST-8"
+        help
+            CST-8 is Asia/Shanghai without daylight-saving time.
+
+endmenu

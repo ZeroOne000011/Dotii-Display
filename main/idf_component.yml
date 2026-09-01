@@ -1,0 +1,10 @@
+dependencies:
+  espressif/cjson:
+    version: "^1.7.19"
+  espressif/esp_lvgl_adapter:
+    # The Waveshare v1.0.1 factory image was generated before 0.6.3.
+    # Keep the display bridge aligned with the known-good official image.
+    version: "0.6.2"
+  lvgl/lvgl:
+    version: "9.4.*"
+    public: true

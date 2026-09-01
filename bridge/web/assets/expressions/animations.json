@@ -1,0 +1,240 @@
+{
+  "schema_version": 1,
+  "character": "Dotii",
+  "background": "#000000",
+  "safe_content_box": [
+    54,
+    54,
+    412,
+    412
+  ],
+  "notes": "照片版圆角条形脸；九种表情相对上一版统一放大 20%，网页预览与固件使用相同状态造型和八相位几何参数，网页额外模拟 AMOLED 光晕。",
+  "animations": [
+    {
+      "id": "idle_breath",
+      "label": "待机呼吸",
+      "purpose": "默认空闲循环",
+      "src": "/assets/expressions/dotii-idle-breath.webp",
+      "format": "animated_webp",
+      "canvas": [
+        466,
+        466
+      ],
+      "frame_count": 8,
+      "durations_ms": [
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100
+      ],
+      "loop": true,
+      "bytes": 11388,
+      "sha256": "a29dc33d1f8f5e29e4101684ba058f9a67eb951d02724e95ee00c85d77307546"
+    },
+    {
+      "id": "blink",
+      "label": "眨眼",
+      "purpose": "待机随机插入",
+      "src": "/assets/expressions/dotii-blink.webp",
+      "format": "animated_webp",
+      "canvas": [
+        466,
+        466
+      ],
+      "frame_count": 8,
+      "durations_ms": [
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100
+      ],
+      "loop": true,
+      "bytes": 5676,
+      "sha256": "001b7ded378a69721328d96527938d45c15ea76f6703f4c4a29cf2e1bc760143"
+    },
+    {
+      "id": "curious",
+      "label": "好奇",
+      "purpose": "发现新事件或等待用户",
+      "src": "/assets/expressions/dotii-curious.webp",
+      "format": "animated_webp",
+      "canvas": [
+        466,
+        466
+      ],
+      "frame_count": 8,
+      "durations_ms": [
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100
+      ],
+      "loop": true,
+      "bytes": 6416,
+      "sha256": "061f3601b31beab910f484dc87c8d037dacd8e5cee35b3014334758e50dafd7a"
+    },
+    {
+      "id": "sleepy_yawn",
+      "label": "困倦打哈欠",
+      "purpose": "长时间无操作",
+      "src": "/assets/expressions/dotii-sleepy-yawn.webp",
+      "format": "animated_webp",
+      "canvas": [
+        466,
+        466
+      ],
+      "frame_count": 8,
+      "durations_ms": [
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100
+      ],
+      "loop": true,
+      "bytes": 5508,
+      "sha256": "fba7398018dd3ffbf8cfa5aaf282a33cd9522c55ca74beb9e5a761ad2f47b9be"
+    },
+    {
+      "id": "touch_response",
+      "label": "触摸回应",
+      "purpose": "轻触屏幕反馈",
+      "src": "/assets/expressions/dotii-touch-response.webp",
+      "format": "animated_webp",
+      "canvas": [
+        466,
+        466
+      ],
+      "frame_count": 8,
+      "durations_ms": [
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100
+      ],
+      "loop": true,
+      "bytes": 21516,
+      "sha256": "db9d8a1776cf7278502856204f7f4d640b7b2283fa6024f1855d993f901b2947"
+    },
+    {
+      "id": "connecting",
+      "label": "连接中",
+      "purpose": "联网或管理中心连接中",
+      "src": "/assets/expressions/dotii-connecting.webp",
+      "format": "animated_webp",
+      "canvas": [
+        466,
+        466
+      ],
+      "frame_count": 8,
+      "durations_ms": [
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100
+      ],
+      "loop": true,
+      "bytes": 7240,
+      "sha256": "0760b441f3246b592d10ede80e62da07710c0db3242e1498cdbd7b97c1f9764a"
+    },
+    {
+      "id": "working",
+      "label": "工作中",
+      "purpose": "任务运行或数据处理中",
+      "src": "/assets/expressions/dotii-working.webp",
+      "format": "animated_webp",
+      "canvas": [
+        466,
+        466
+      ],
+      "frame_count": 8,
+      "durations_ms": [
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100
+      ],
+      "loop": true,
+      "bytes": 13516,
+      "sha256": "3294de06674d8e9d452cfb13508136c0b429404267e7a740e6ea57eaa8cbc130"
+    },
+    {
+      "id": "complete",
+      "label": "完成",
+      "purpose": "任务成功完成",
+      "src": "/assets/expressions/dotii-complete.webp",
+      "format": "animated_webp",
+      "canvas": [
+        466,
+        466
+      ],
+      "frame_count": 8,
+      "durations_ms": [
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100
+      ],
+      "loop": true,
+      "bytes": 10100,
+      "sha256": "63cc076bd0459d182c984d162320c4f9d4656da054762a382b89a3e66c08da7a"
+    },
+    {
+      "id": "failure",
+      "label": "失败",
+      "purpose": "任务失败或可恢复错误",
+      "src": "/assets/expressions/dotii-failure.webp",
+      "format": "animated_webp",
+      "canvas": [
+        466,
+        466
+      ],
+      "frame_count": 8,
+      "durations_ms": [
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100
+      ],
+      "loop": true,
+      "bytes": 5918,
+      "sha256": "de0c05a05fc38a304299edf6d9309ea69f31c7373ea5e272ece62fddd4641346"
+    }
+  ],
+  "style": "photo_geometric_v2"
+}
