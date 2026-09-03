@@ -10,10 +10,18 @@ Dotii 是一套由 ESP32-S3 圆形 AMOLED 桌面屏与 Windows 端“Dotii 管�
 
 ### 使用前准备
 
-- 一台 Windows 10/11 x64 电脑。
-- 一块 Waveshare ESP32-S3-Touch-AMOLED-1.75 开发板和支持数据传输的 USB 线。
-- 可用的 2.4 GHz Wi-Fi；电脑与 Dotii 需要处于同一局域网。
-- 从 [MakerWorld](https://makerworld.com.cn/zh/models/2918764-dotii-zhuo-mian-jiao-hu-ping#profileId-3421401) 获取 Dotii 外壳模型、打印文件和装配信息。
+先准备以下硬件和材料。带“购买链接”的商品链接来自随项目装配说明书提供的链接；电商商品、库存和规格可能变化，下单前请再次核对型号、接口和尺寸。
+
+| 类别 | 项目 | 数量 | 购买/资料链接 |
+| --- | --- | ---: | --- |
+| 核心硬件 | 微雪 Waveshare ESP32-S3-Touch-AMOLED-1.75 开发板（含 1.75 英寸圆形屏，无外壳） | ×1 | [淘宝购买链接](https://e.tb.cn/h.8msjONXF0M0Vdg1?tk=X4anTUTbPSP) · [官方说明文档](https://docs.waveshare.net/ESP32-S3-Touch-AMOLED-1.75/) |
+| 供电 | 400 mAh 602030 锂电池，必须带 **MX1.25 端子头** | ×1 | [拼多多购买链接](https://mobile.yangkeduo.com/goods.html?ps=nMO2vEcuRY) |
+| 结构配件 | Type-C 弯公头转母头，用于底座内的接口引出 | ×1 | [拼多多购买链接](https://mobile.yangkeduo.com/goods.html?ps=m4Bzx5p2iF) |
+| 紧固件 | M2 螺丝，长度 4–7 mm 均可 | ×3 | — |
+| 3D 打印件 | 按 MakerWorld 模型打印的外壳、底座、按钮等结构件 | ×5 | [MakerWorld 模型、打印文件和装配资料](https://makerworld.com.cn/zh/models/2918764-dotii-zhuo-mian-jiao-hu-ping#profileId-3421401) |
+| 连接与运行环境 | 支持数据传输的 USB 线、Windows 10/11 x64 电脑、可用的 2.4 GHz Wi-Fi | 各 ×1 | — |
+
+装配时请特别注意：电池插入开发板的 `BAT` 接口，并整理线束，不能遮挡金色螺纹孔；先将 Type-C 转接头放入底座再扣合；扣合屏幕时建议屏幕朝下，先将充电口对准槽口；按钮需按正确方向放入，M2 螺丝锁紧即可，不要拧得过紧。完整步骤见 [装配说明与 MakerWorld 文件](https://makerworld.com.cn/zh/models/2918764-dotii-zhuo-mian-jiao-hu-ping#profileId-3421401)。
 
 普通用户使用便携包无需安装 Python、Node.js、ESP-IDF 或 FFmpeg。
 
