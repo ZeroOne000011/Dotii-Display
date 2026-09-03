@@ -21,8 +21,6 @@ Dotii 是一套由 ESP32-S3 圆形 AMOLED 桌面屏与 Windows 端“Dotii 管�
 | 3D 打印件 | 按 MakerWorld 模型打印的外壳、底座、按钮等结构件 | ×5 | [MakerWorld 模型、打印文件和装配资料](https://makerworld.com.cn/zh/models/2918764-dotii-zhuo-mian-jiao-hu-ping#profileId-3421401) |
 | 连接与运行环境 | 支持数据传输的 USB 线、Windows 10/11 x64 电脑、可用的 2.4 GHz Wi-Fi | 各 ×1 | — |
 
-装配时请特别注意：电池插入开发板的 `BAT` 接口，并整理线束，不能遮挡金色螺纹孔；先将 Type-C 转接头放入底座再扣合；扣合屏幕时建议屏幕朝下，先将充电口对准槽口；按钮需按正确方向放入，M2 螺丝锁紧即可，不要拧得过紧。完整步骤见 [装配说明与 MakerWorld 文件](https://makerworld.com.cn/zh/models/2918764-dotii-zhuo-mian-jiao-hu-ping#profileId-3421401)。
-
 普通用户使用便携包无需安装 Python、Node.js、ESP-IDF 或 FFmpeg。
 
 ### 五步开始使用
