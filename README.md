@@ -4,18 +4,18 @@ Dotii 是一套由 ESP32-S3 圆形 AMOLED 桌面屏与 Windows 端“Dotii 管�
 
 ![Dotii 桌面交互屏产品渲染图](assets/dotii-product-render.png)
 
-[下载 Windows 便携包](https://github.com/ZeroOne000011/Dotii-Display/releases) · [MakerWorld 模型与打印文件](https://makerworld.com.cn/zh/models/2918764-dotii-zhuo-mian-jiao-hu-ping#profileId-3421401) · [查看开发指南](开发指南.md)
+[下载 Windows 便携包](https://github.com/ZeroOne000011/Dotii-Display/releases/tag/v1.0.0) · [MakerWorld 模型与打印文件](https://makerworld.com.cn/zh/models/2918764-dotii-zhuo-mian-jiao-hu-ping#profileId-3421401) · [查看开发指南](开发指南.md)
 
-## 第一部分：便携包快速上手与常见问题
+## 便携包快速上手
 
 ### 使用前准备
 
-先准备以下硬件和材料。带“购买链接”的商品链接来自随项目装配说明书提供的链接；电商商品、库存和规格可能变化，下单前请再次核对型号、接口和尺寸。
+准备以下硬件和材料：
 
 | 类别 | 项目 | 数量 | 购买/资料链接 |
 | --- | --- | ---: | --- |
 | 核心硬件 | 微雪 Waveshare ESP32-S3-Touch-AMOLED-1.75 开发板（含 1.75 英寸圆形屏，无外壳） | ×1 | [淘宝购买链接](https://e.tb.cn/h.8msjONXF0M0Vdg1?tk=X4anTUTbPSP) · [官方说明文档](https://docs.waveshare.net/ESP32-S3-Touch-AMOLED-1.75/) |
-| 供电 | 400 mAh 602030 锂电池，必须带 **MX1.25 端子头** | ×1 | [拼多多购买链接](https://mobile.yangkeduo.com/goods.html?ps=nMO2vEcuRY) |
+| 供电 | 3.7 V、400 mAh 602030 锂电池，带 **MX1.25 2P 插头** | ×1 | [拼多多购买链接](https://mobile.yangkeduo.com/goods.html?ps=nMO2vEcuRY) |
 | 结构配件 | Type-C 弯公头转母头，用于底座内的接口引出 | ×1 | [拼多多购买链接](https://mobile.yangkeduo.com/goods.html?ps=m4Bzx5p2iF) |
 | 紧固件 | M2 螺丝，长度 4–7 mm 均可 | ×3 | — |
 | 3D 打印件 | 按 MakerWorld 模型打印的外壳、底座、按钮等结构件 | ×5 | [MakerWorld 模型、打印文件和装配资料](https://makerworld.com.cn/zh/models/2918764-dotii-zhuo-mian-jiao-hu-ping#profileId-3421401) |
@@ -25,11 +25,11 @@ Dotii 是一套由 ESP32-S3 圆形 AMOLED 桌面屏与 Windows 端“Dotii 管�
 
 ### 五步开始使用
 
-1. 从 [GitHub Releases](https://github.com/ZeroOne000011/Dotii-Display/releases) 下载 `DotiiManagementCenter-1.0.0-portable.zip`，解压后保持目录结构不变。
+1. 从 [Dotii v1.0.0 Release](https://github.com/ZeroOne000011/Dotii-Display/releases/tag/v1.0.0) 下载 `DotiiManagementCenter-1.0.0-portable.zip`，解压后保持目录结构不变。
 2. 双击 `DotiiManagementCenter.exe`。程序会驻留在系统托盘，并在浏览器打开 Dotii 管理中心；默认地址为 `http://127.0.0.1:8787`。
 3. 用 USB 线连接 Dotii，在“设置”页面识别设备。首次使用时可通过“一键烧录”写入随包固件。
 4. 使用蓝牙配网，将 2.4 GHz Wi-Fi、管理中心地址和设备访问令牌同步到 Dotii。
-5. 按需启用 Codex 或 Bambu，并在对应页面完成配置。两个模块首次启动均为关闭状态，不会自动安装、登录或连接外部服务。
+5. 按需启用 Codex 或 Bambu，并在对应页面完成配置。首次运行时两个模块默认关闭，不会自动安装、登录或连接外部服务。
 
 关闭浏览器不会退出管理中心。需要重新打开页面、查看日志或退出程序时，请使用系统托盘中的 Dotii 图标。
 
@@ -100,7 +100,7 @@ Dotii 是一套由 ESP32-S3 圆形 AMOLED 桌面屏与 Windows 端“Dotii 管�
 - 常规一键烧录不会擦除 NVS。请勿对未知设备、串口或固件执行烧录。
 - Windows 首次允许局域网访问时可能显示防火墙窗口，程序名称应为“Dotii 管理中心后台服务”。请按实际使用的网络类型授权。
 
-## 第二部分：开发者指南与二次开发
+## 开发与二次开发
 
 本仓库包含 Dotii 固件、Windows 管理中心、管理网页、测试和打包配置。完整的架构、协议、模块扩展、圆屏交互、构建、测试及发布规范统一记录在 [开发指南.md](开发指南.md)；开始修改前请先阅读该文档。
 
@@ -136,7 +136,7 @@ State-Display/
 
 ### 获取源码开发工具
 
-需要运行完整源码或离线复现 Windows 环境的开发者，可以从 [GitHub Release 下载 Windows x64 工具包](https://github.com/ZeroOne000011/Dotii-Display/releases/download/v1.0.0/Dotii-Tools-Windows-x64-1.0.0.zip)，并下载对应的 [SHA-256 校验文件](https://github.com/ZeroOne000011/Dotii-Display/releases/download/v1.0.0/Dotii-Tools-Windows-x64-1.0.0-SHA256.txt)。工具包包含项目当前验证过的 Node.js 24.16.0、npm 11.13.0、OpenAI Codex CLI 0.151.0 和 Windows x64 LGPL-only FFmpeg。
+需要运行完整源码或离线复现 Windows 环境的开发者，可以从独立的 [Dotii 开发工具包 v1.0.0 Release](https://github.com/ZeroOne000011/Dotii-Display/releases/tag/tools-v1.0.0) 下载 `Dotii-Tools-Windows-x64-1.0.0.zip` 及其 SHA-256 校验文件。工具包包含项目当前验证过的 Node.js 24.16.0、npm 11.13.0、OpenAI Codex CLI 0.151.0 和 Windows x64 LGPL-only FFmpeg。
 
 校验通过后，将 ZIP 解压到源码根目录，使 `tools/` 与 `bridge/`、`main/`、`firmware/` 位于同一级。PowerShell 校验示例：
 
@@ -183,5 +183,3 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\packaging\build_windows.ps
 - 管理网页由源码运行与发布包共用，修改功能时应保持两种入口行为一致。
 - 密钥、访问码、令牌、用户名、绝对路径、局域网地址和串口不得写入源码。
 - 固件构建、桌面测试、真实服务和实体设备属于不同验收层级，应分别记录结果。
-
-进一步阅读：[Dotii 1.0 开发指南](开发指南.md)。
