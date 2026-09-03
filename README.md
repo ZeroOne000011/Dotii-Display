@@ -134,6 +134,18 @@ State-Display/
 
 公开仓库不包含体积较大的 `tools/` 和重复打包内容 `release/`。`build/`、`.codx/`、`sdkconfig`、缓存、日志及 `%LOCALAPPDATA%\StateDisplay` 下的运行数据也不属于源码。仓库不包含 Wi-Fi、Bambu、设备令牌或 Codex 登录凭据。
 
+### 获取源码开发工具
+
+需要运行完整源码或离线复现 Windows 环境的开发者，可以从 [GitHub Release 下载 Windows x64 工具包](https://github.com/ZeroOne000011/Dotii-Display/releases/download/v1.0.0/Dotii-Tools-Windows-x64-1.0.0.zip)，并下载对应的 [SHA-256 校验文件](https://github.com/ZeroOne000011/Dotii-Display/releases/download/v1.0.0/Dotii-Tools-Windows-x64-1.0.0-SHA256.txt)。工具包包含项目当前验证过的 Node.js 24.16.0、npm 11.13.0、OpenAI Codex CLI 0.151.0 和 Windows x64 LGPL-only FFmpeg。
+
+校验通过后，将 ZIP 解压到源码根目录，使 `tools/` 与 `bridge/`、`main/`、`firmware/` 位于同一级。PowerShell 校验示例：
+
+```powershell
+(Get-FileHash .\Dotii-Tools-Windows-x64-1.0.0.zip -Algorithm SHA256).Hash
+```
+
+工具包仅面向 Windows x64 源码开发；普通用户下载便携包无需单独下载或安装它。各工具目录中的许可证和上游说明文件必须保留。
+
 ### 从源码运行管理中心
 
 ```powershell
