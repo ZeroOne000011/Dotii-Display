@@ -34,7 +34,16 @@ from codex_app_server import probe_app_server, run_collector
 from bambu_client import BambuConfigStore, BambuService
 from bluetooth_bridge import BluetoothBridge
 from firmware_flasher import FirmwareFlasher
-from runtime_paths import application_root, is_frozen, project_root, resource_path, sibling_executable, tools_root
+from platforms import current_platform
+from runtime_paths import (
+    application_root,
+    is_frozen,
+    project_root,
+    resource_path,
+    runtime_folder,
+    sibling_executable,
+    tools_root,
+)
 
 
 SCHEMA_VERSION = 1
@@ -74,12 +83,13 @@ MODULE_DEFAULTS = {"codex": False, "bambu": False, "dotii": True}
 
 def resolve_ffmpeg(runtime_folder: Path) -> str | None:
     """Resolve the bundled FFmpeg executable, with legacy user fallbacks."""
-    candidates = [
-        runtime_folder / "tools" / "ffmpeg" / "bin" / "ffmpeg.exe",
-        tools_root() / "ffmpeg" / "bin" / "ffmpeg.exe",
-    ]
+    platform = current_platform()
+    candidates = platform.ffmpeg_candidates(runtime_folder, tools_root())
     candidate = next((path for path in candidates if path.is_file()), None)
-    return str(candidate.resolve()) if candidate else shutil.which("ffmpeg.exe") or shutil.which("ffmpeg")
+    if candidate:
+        return str(candidate.resolve())
+    executable_name = "ffmpeg.exe" if platform.name == "windows" else "ffmpeg"
+    return shutil.which(executable_name)
 DOTII_EXPRESSION_IDS = (
     "idle_breath", "blink", "curious", "sleepy_yawn",
     "touch_response", "connecting", "working", "complete", "failure",
@@ -168,8 +178,6 @@ CODEX_UI_OPTIONS = {"classic", "dual_limit"}
 SCREEN_OFF_PAGE_OPTIONS = {"none", "custom", "dotii"}
 CUSTOM_COLOR_PATTERN = re.compile(r"^#[0-9A-Fa-f]{6}$")
 WEB_ROOT = resource_path("web")
-STARTUP_REGISTRY_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
-STARTUP_REGISTRY_VALUE = "DotiiManagementCenter"
 MANAGEMENT_CENTER_EXECUTABLE = "DotiiManagementCenter.exe"
 CODEX_CLI_PACKAGE = os.environ.get("STATE_DISPLAY_CODEX_PACKAGE", "@openai/codex@0.151.0")
 CODEX_CLI_VERSION = "0.151.0"
@@ -182,51 +190,30 @@ def _bounded_text(value: Any, maximum: int, field: str) -> str:
 
 
 def startup_command(python_executable: Path, app_script: Path) -> str:
-    return f'"{python_executable.resolve()}" -B "{app_script.resolve()}" --startup'
+    return current_platform().startup_command(python_executable, app_script)
 
 
 def packaged_startup_command(management_center: Path) -> str:
     """Build the login command for the tray host, never the bridge backend."""
-    return f'"{management_center.resolve()}" --startup'
+    return current_platform().packaged_startup_command(management_center)
 
 
 def current_startup_command() -> str:
-    if is_frozen():
-        return packaged_startup_command(sibling_executable(MANAGEMENT_CENTER_EXECUTABLE))
-    pythonw = Path(sys.executable).with_name("pythonw.exe")
-    app_script = application_root() / "bridge" / "bridge_app.py"
-    return startup_command(pythonw, app_script)
+    return current_platform().current_startup_command(
+        frozen=is_frozen(),
+        executable=Path(sys.executable),
+        app_script=application_root() / "bridge" / "bridge_app.py",
+        management_center=sibling_executable(MANAGEMENT_CENTER_EXECUTABLE),
+    )
 
 
 def startup_enabled() -> bool:
-    if os.name != "nt":
-        return False
-    try:
-        import winreg
-
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, STARTUP_REGISTRY_KEY) as key:
-            winreg.QueryValueEx(key, STARTUP_REGISTRY_VALUE)
-            return True
-    except (FileNotFoundError, OSError):
-        return False
+    return current_platform().startup_enabled()
 
 
 def set_startup(enabled: bool) -> bool:
-    if os.name != "nt":
-        return False
-    import winreg
-
-    with winreg.CreateKey(winreg.HKEY_CURRENT_USER, STARTUP_REGISTRY_KEY) as key:
-        if enabled:
-            winreg.SetValueEx(
-                key, STARTUP_REGISTRY_VALUE, 0, winreg.REG_SZ, current_startup_command()
-            )
-        else:
-            try:
-                winreg.DeleteValue(key, STARTUP_REGISTRY_VALUE)
-            except FileNotFoundError:
-                pass
-    return startup_enabled()
+    command = current_startup_command() if enabled else ""
+    return current_platform().set_startup(enabled, command)
 
 
 def load_or_create_token(path: Path) -> str:
@@ -1056,7 +1043,7 @@ class RuntimeStatus:
 
 
 class BridgeHandler(BaseHTTPRequestHandler):
-    server_version = "StateDisplayBridge/1.0"
+    server_version = "StateDisplayBridge/1.1"
 
     @property
     def bridge(self) -> "BridgeServer":
@@ -1069,18 +1056,21 @@ class BridgeHandler(BaseHTTPRequestHandler):
         return _is_loopback(self.client_address[0])
 
     def _send_bytes(self, status: int, body: bytes, content_type: str) -> None:
-        self.send_response(status)
-        self.send_header("Content-Type", content_type)
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header(
-            "Content-Security-Policy",
-            "default-src 'self'; img-src 'self' blob: data:; style-src 'self'; script-src 'self'; "
-            "connect-src 'self'; base-uri 'none'; frame-ancestors 'none'",
-        )
-        self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.send_response(status)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header(
+                "Content-Security-Policy",
+                "default-src 'self'; img-src 'self' blob: data:; style-src 'self'; script-src 'self'; "
+                "connect-src 'self'; base-uri 'none'; frame-ancestors 'none'",
+            )
+            self.end_headers()
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
+            logging.debug("客户端在响应写入完成前断开：%s", self.client_address[0])
 
     def _send_json(self, status: int, payload: Any) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -1139,7 +1129,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
         address = local_ipv4()
         runtime = self.bridge.runtime.snapshot()
         return {
-            "app": {"name": "Dotii 管理中心", "version": "0.9"},
+            "app": {"name": "Dotii 管理中心", "version": "1.1.0"},
             "bridge": {
                 "online": True,
                 "local_url": f"http://127.0.0.1:{self.bridge.server_port}",
@@ -1542,42 +1532,41 @@ def main() -> None:
             set_startup(True)
     except OSError as error:
         logging.warning("无法修复登录自启动命令：%s", error)
-    local_app_data = os.environ.get("LOCALAPPDATA")
-    runtime_folder = (Path(local_app_data) if local_app_data else Path.home() / ".state-display") / "StateDisplay"
-    runtime_folder.mkdir(parents=True, exist_ok=True)
-    state_path = arguments.state or runtime_folder / "state.json"
+    writable_root = runtime_folder()
+    writable_root.mkdir(parents=True, exist_ok=True)
+    state_path = arguments.state or writable_root / "state.json"
     if not state_path.exists():
         shutil.copyfile(resource_path("state.json"), state_path)
 
-    token = arguments.token or load_or_create_token(runtime_folder / "bridge-token")
+    token = arguments.token or load_or_create_token(writable_root / "bridge-token")
     store = StateStore(state_path)
     runtime = RuntimeStatus()
     stop = threading.Event()
     collector_restart = threading.Event()
-    custom = CustomConfigStore(runtime_folder / "custom.json")
-    modules = ModuleConfigStore(runtime_folder / "modules.json")
-    dotii = DotiiConfigStore(runtime_folder / "dotii.json")
-    display = DisplayConfigStore(runtime_folder / "display.json")
-    codex_check = CodexCheckStore(runtime_folder / "codex-check.json")
-    assets = CustomAssetStore(runtime_folder)
-    bambu_config = BambuConfigStore(runtime_folder / "bambu.json")
+    custom = CustomConfigStore(writable_root / "custom.json")
+    modules = ModuleConfigStore(writable_root / "modules.json")
+    dotii = DotiiConfigStore(writable_root / "dotii.json")
+    display = DisplayConfigStore(writable_root / "display.json")
+    codex_check = CodexCheckStore(writable_root / "codex-check.json")
+    assets = CustomAssetStore(writable_root)
+    bambu_config = BambuConfigStore(writable_root / "bambu.json")
     bambu = BambuService(
         bambu_config,
         lambda: modules.read()["bambu"],
-        lambda: resolve_ffmpeg(runtime_folder),
+        lambda: resolve_ffmpeg(writable_root),
     )
     bambu.start()
-    bluetooth = BluetoothBridge(runtime_folder)
+    bluetooth = BluetoothBridge(writable_root)
     bluetooth.start()
-    firmware = FirmwareFlasher(project_root(), runtime_folder)
+    firmware = FirmwareFlasher(project_root(), writable_root)
     server = BridgeServer((arguments.host, arguments.port), store, token, runtime, collector_restart,
                           custom, modules, dotii, display, codex_check, assets, bambu_config, bambu,
-                          bluetooth, firmware, runtime_folder, application_root(), arguments.codex_command)
+                          bluetooth, firmware, writable_root, application_root(), arguments.codex_command)
     if arguments.app_server:
         threading.Thread(
             target=run_collector,
             kwargs={
-                "runtime_folder": runtime_folder,
+                "runtime_folder": writable_root,
                 "cwd": application_root(),
                 "interval": max(1.0, arguments.app_server_interval),
                 "stop": stop,

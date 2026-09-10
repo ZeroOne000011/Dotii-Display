@@ -1,4 +1,4 @@
-"""Windows BLE provisioning and recovery channel for Dotii."""
+"""BLE provisioning and recovery channel behind the active platform boundary."""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ import zlib
 from pathlib import Path
 from typing import Any, Callable
 
+from platforms import PlatformAdapter, current_platform
 from runtime_paths import is_frozen
 
 
@@ -25,7 +26,7 @@ MAX_CONFIG_BYTES = 1024
 
 
 def _hidden_creation_flags() -> int:
-    return getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    return current_platform().hidden_creation_flags()
 
 
 def _configuration_payload(
@@ -76,11 +77,13 @@ class BluetoothBridge:
         runtime_folder: Path,
         *,
         runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+        platform_adapter: PlatformAdapter | None = None,
     ) -> None:
         self.runtime_folder = runtime_folder
         self.dependencies = runtime_folder / "bluetooth-deps"
         self.settings_path = runtime_folder / "bluetooth.json"
         self.runner = runner
+        self.platform = platform_adapter or current_platform()
         self.lock = threading.RLock()
         self.operation_lock = threading.Lock()
         self.stop_event = threading.Event()
@@ -123,6 +126,8 @@ class BluetoothBridge:
         return BleakClient, BleakScanner
 
     def dependency_ready(self) -> bool:
+        if not self.platform.bluetooth_available:
+            return False
         try:
             self._bleak()
             return True
@@ -130,6 +135,8 @@ class BluetoothBridge:
             return False
 
     def start(self) -> None:
+        if not self.platform.bluetooth_available:
+            return
         if self.monitor is None or not self.monitor.is_alive():
             self.monitor = threading.Thread(target=self._monitor, name="dotii-ble-monitor", daemon=True)
             self.monitor.start()
@@ -137,6 +144,7 @@ class BluetoothBridge:
     def snapshot(self) -> dict[str, Any]:
         with self.lock:
             return {
+                "available": self.platform.bluetooth_available,
                 "dependency_ready": self.dependency_ready(),
                 "devices": [dict(item) for item in self.devices],
                 "last_address": self.last_address,
@@ -160,6 +168,8 @@ class BluetoothBridge:
             return True
 
     def start_install(self) -> bool:
+        if not self.platform.bluetooth_available:
+            raise OSError("当前平台尚未支持 Dotii 蓝牙配网")
         if is_frozen():
             if self.dependency_ready():
                 return False
@@ -198,6 +208,8 @@ class BluetoothBridge:
                 self.updated_at_epoch = int(time.time())
 
     def start_scan(self) -> bool:
+        if not self.platform.bluetooth_available:
+            raise ValueError("当前平台尚未支持 Dotii 蓝牙配网")
         if not self.dependency_ready():
             raise ValueError("请先安装蓝牙连接组件")
         return self._start_worker(self._scan, name="dotii-ble-scan")
@@ -242,6 +254,8 @@ class BluetoothBridge:
     def start_configure(
         self, *, address: Any, ssid: Any, password: Any, bridge_url: str, bridge_token: str
     ) -> bool:
+        if not self.platform.bluetooth_available:
+            raise ValueError("当前平台尚未支持 Dotii 蓝牙配网")
         if not self.dependency_ready():
             raise ValueError("请先安装蓝牙连接组件")
         if not isinstance(address, str) or not address or len(address) > 80:

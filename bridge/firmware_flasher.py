@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
-import shutil
 import subprocess
 import sys
 import threading
@@ -14,12 +12,10 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
+from platforms import PlatformAdapter, current_platform
 from runtime_paths import is_frozen
 
 
-DOTII_USB_VID = "303A"
-DOTII_USB_PID = "1001"
-PORT_PATTERN = re.compile(r"^COM(?:[1-9]|[1-9][0-9]|[12][0-9]{2})$", re.IGNORECASE)
 PROGRESS_PATTERN = re.compile(r"(?:Writing|Hash of data verified|Hard resetting|Stub running).*?(\d+(?:\.\d+)?)%?", re.I)
 PROJECT_VERSION_PATTERN = re.compile(
     r'^\s*set\s*\(\s*PROJECT_VER\s+"?([^"\s\)]+)', re.MULTILINE
@@ -27,7 +23,7 @@ PROJECT_VERSION_PATTERN = re.compile(
 
 
 def _hidden_creation_flags() -> int:
-    return getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    return current_platform().hidden_creation_flags()
 
 
 def _sha256(path: Path) -> str:
@@ -72,29 +68,11 @@ def _local_esptool_ready() -> bool:
     return bool(package_file) and _stub_data_ready(Path(package_file).resolve().parent)
 
 
-def _parse_ports(payload: str) -> list[dict[str, Any]]:
-    try:
-        raw = json.loads(payload or "[]")
-    except json.JSONDecodeError:
-        return []
-    if isinstance(raw, dict):
-        raw = [raw]
-    output: list[dict[str, Any]] = []
-    for item in raw if isinstance(raw, list) else []:
-        if not isinstance(item, dict):
-            continue
-        port = str(item.get("DeviceID") or "").upper()
-        pnp = str(item.get("PNPDeviceID") or "").upper()
-        if not PORT_PATTERN.fullmatch(port):
-            continue
-        output.append({
-            "port": port,
-            "name": str(item.get("Name") or port)[:120],
-            "pnp_id": pnp[:180],
-            "dotii": f"VID_{DOTII_USB_VID}" in pnp and f"PID_{DOTII_USB_PID}" in pnp,
-        })
-    output.sort(key=lambda item: (not item["dotii"], int(item["port"][3:])))
-    return output
+def _parse_ports(payload: str) -> list[dict[str, object]]:
+    """Compatibility wrapper for the former firmware-module helper."""
+    from platforms.windows import parse_serial_ports
+
+    return parse_serial_ports(payload)
 
 
 class FirmwareFlasher:
@@ -105,12 +83,14 @@ class FirmwareFlasher:
         *,
         run: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
         popen: Callable[..., subprocess.Popen[str]] = subprocess.Popen,
+        platform_adapter: PlatformAdapter | None = None,
     ) -> None:
         self.project_root = project_root.resolve()
         self.build_root = _firmware_root(self.project_root)
         self.runtime_folder = runtime_folder
         self.run = run
         self.popen = popen
+        self.platform = platform_adapter or current_platform()
         self.lock = threading.RLock()
         self.operation_state = "idle"
         self.operation_detail = "尚未开始烧录"
@@ -127,37 +107,7 @@ class FirmwareFlasher:
         self.package = self._load_package()
 
     def _python_candidates(self) -> list[Path]:
-        output = [Path(sys.executable)]
-        configured = os.environ.get("IDF_PYTHON_ENV_PATH")
-        if configured:
-            output.append(Path(configured) / "Scripts" / "python.exe")
-        configured_tools = os.environ.get("IDF_TOOLS_PATH")
-        if configured_tools:
-            tools_python = Path(configured_tools) / "python"
-            if tools_python.is_dir():
-                output.extend(sorted(tools_python.glob("v*/venv/Scripts/python.exe"), reverse=True))
-        # The VBS developer entry is normally launched outside an activated
-        # ESP-IDF shell. Discover official installer layouts without baking a
-        # user-specific path into the project.
-        search_roots = [
-            Path.home() / ".espressif" / "python_env",
-            Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Espressif" / "python_env",
-            Path(os.environ.get("ProgramData", "")) / "Espressif" / "python_env",
-        ]
-        system_drive = os.environ.get("SystemDrive")
-        if system_drive:
-            search_roots.append(Path(f"{system_drive}\\Espressif") / "tools" / "python")
-        for root in search_roots:
-            if not root.is_dir():
-                continue
-            output.extend(sorted(root.glob("*/venv/Scripts/python.exe"), reverse=True))
-            output.extend(sorted(root.glob("*/Scripts/python.exe"), reverse=True))
-        unique: list[Path] = []
-        for candidate in output:
-            resolved = candidate.resolve() if candidate.exists() else candidate
-            if resolved not in unique:
-                unique.append(resolved)
-        return unique
+        return self.platform.esptool_python_candidates()
 
     def _esptool_command(self, *arguments: str) -> list[str]:
         if is_frozen():
@@ -242,21 +192,7 @@ class FirmwareFlasher:
         with self.lock:
             if not force and time.monotonic() - self._ports_checked_at < 3:
                 return [dict(item) for item in self._ports]
-        command = (
-            "Get-CimInstance Win32_SerialPort | "
-            "Select-Object DeviceID,Name,PNPDeviceID | ConvertTo-Json -Compress"
-        )
-        try:
-            powershell = shutil.which("powershell.exe") or shutil.which("pwsh.exe") or "powershell.exe"
-            result = self.run(
-                [powershell, "-NoProfile", "-NonInteractive", "-Command", command],
-                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                text=True, encoding="utf-8-sig", errors="replace", timeout=8,
-                creationflags=_hidden_creation_flags(), check=False,
-            )
-            ports = _parse_ports(result.stdout) if result.returncode == 0 else []
-        except (OSError, subprocess.SubprocessError):
-            ports = []
+        ports = self.platform.scan_serial_ports(self.run)
         with self.lock:
             self._ports = ports
             self._ports_checked_at = time.monotonic()
@@ -284,9 +220,9 @@ class FirmwareFlasher:
             }
 
     def start_flash(self, port: Any) -> bool:
-        if not isinstance(port, str) or not PORT_PATTERN.fullmatch(port.upper()):
+        if not isinstance(port, str) or not self.platform.valid_serial_port(port):
             raise ValueError("请选择有效的串口")
-        port = port.upper()
+        port = port.upper() if self.platform.name == "windows" else port
         ports = self.scan_ports(force=True)
         selected = next((item for item in ports if item["port"] == port), None)
         if selected is None:

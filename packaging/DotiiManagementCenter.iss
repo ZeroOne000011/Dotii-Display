@@ -1,6 +1,6 @@
 ; Compile after creating release\DotiiManagementCenter-{#AppVersion}.
 #ifndef AppVersion
-  #define AppVersion "1.0.0"
+  #define AppVersion "1.1.0"
 #endif
 
 [Setup]

@@ -6,6 +6,7 @@
 #include "bsp/esp-bsp.h"
 #include "driver/gpio.h"
 #include "driver/i2c_master.h"
+#include "driver/rtc_io.h"
 #include "esp_io_expander.h"
 #include "esp_log.h"
 #include "esp_sleep.h"
@@ -39,12 +40,17 @@
 #define PMU_BATTERY_INTERVAL_MS 10000
 #define PMU_FULL_PERCENT 100
 #define PMU_CHARGE_RESUME_PERCENT 97
+#define HARDWARE_RETRY_INTERVAL_MS 1000
+#define BOARD_INPUT_STACK_DEPTH 4096
 
 static const char *TAG = "board_input";
 static i2c_master_dev_handle_t s_pmu;
 static esp_io_expander_handle_t s_expander;
 static volatile bool s_sleep_requested;
 static volatile bool s_shutdown_requested;
+static StaticTask_t s_input_task_buffer;
+static StackType_t s_input_task_stack[BOARD_INPUT_STACK_DEPTH];
+static TaskHandle_t s_input_task;
 
 static bool pmu_read(uint8_t reg, uint8_t *value)
 {
@@ -76,12 +82,13 @@ static bool pmu_read_adc(uint8_t high_reg, uint8_t low_reg, uint8_t high_mask,
     return true;
 }
 
-static void pmu_start(void)
+static bool pmu_start(void)
 {
+    if (s_pmu != NULL) return true;
     i2c_master_bus_handle_t bus = bsp_i2c_get_handle();
     if (bus == NULL) {
-        ESP_LOGW(TAG, "BSP I2C bus unavailable; battery reading is disabled");
-        return;
+        ESP_LOGW(TAG, "BSP I2C bus unavailable; battery initialization will retry");
+        return false;
     }
     i2c_device_config_t config = {
         .dev_addr_length = I2C_ADDR_BIT_LEN_7,
@@ -89,9 +96,9 @@ static void pmu_start(void)
         .scl_speed_hz = 400000,
     };
     if (i2c_master_bus_add_device(bus, &config, &s_pmu) != ESP_OK) {
-        ESP_LOGW(TAG, "AXP2101 unavailable; battery reading is disabled");
+        ESP_LOGW(TAG, "AXP2101 unavailable; battery initialization will retry");
         s_pmu = NULL;
-        return;
+        return false;
     }
     uint8_t power_on = 0;
     uint8_t power_off = 0;
@@ -114,18 +121,29 @@ static void pmu_start(void)
         pmu_update_bits(AXP2101_BAT_DETECT_CTRL, 0x01, 0x01) &&
         pmu_update_bits(AXP2101_ADC_CHANNEL_CTRL, 0x0B, 0x09);
     if (!pmu_configured) {
-        ESP_LOGW(TAG, "AXP2101 battery diagnostic configuration failed");
+        ESP_LOGW(TAG, "AXP2101 configuration failed; initialization will retry");
+        esp_err_t remove_result = i2c_master_bus_rm_device(s_pmu);
+        if (remove_result != ESP_OK) {
+            ESP_LOGW(TAG, "AXP2101 failed handle cleanup: %s",
+                     esp_err_to_name(remove_result));
+        }
+        s_pmu = NULL;
+        return false;
     }
+    return true;
 }
 
-static void pwr_button_start(void)
+static bool pwr_button_start(void)
 {
+    if (s_expander != NULL) return true;
     s_expander = bsp_io_expander_init();
     if (s_expander == NULL ||
         esp_io_expander_set_dir(s_expander, BUTTON_B_MASK, IO_EXPANDER_INPUT) != ESP_OK) {
-        ESP_LOGW(TAG, "TCA9554 EXIO4 unavailable; PWR key is disabled");
+        ESP_LOGW(TAG, "TCA9554 EXIO4 unavailable; PWR key initialization will retry");
         s_expander = NULL;
+        return false;
     }
+    return true;
 }
 
 static void call_ui(void (*handler)(void))
@@ -186,9 +204,14 @@ static void input_task(void *argument)
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
         .intr_type = GPIO_INTR_DISABLE,
     };
-    gpio_config(&button_config);
-    pmu_start();
-    pwr_button_start();
+    ESP_ERROR_CHECK(gpio_config(&button_config));
+
+    /* AXP2101 and TCA9554 share the display/touch I2C bus.  A deep-sleep
+       wake can reach this task before every board-side device has fully
+       settled, so initialization is retried instead of permanently disabling
+       battery and Button B after a single transient failure. */
+    (void)pmu_start();
+    (void)pwr_button_start();
 
     bool a_pressed = false;
     bool a_long_sent = false;
@@ -210,10 +233,27 @@ static void input_task(void *argument)
     bool charge_complete_latched = false;
     bool first_pmu_sample = true;
     bool power_ui_pending = false;
+    int64_t last_hardware_retry = 0;
+
+    ESP_LOGI(TAG, "Input task running; static stack=%u bytes",
+             (unsigned)(sizeof(s_input_task_stack)));
 
     while (true) {
         bool now_pressed = gpio_get_level(BUTTON_A_GPIO) == 0;
         int64_t now_ms = esp_timer_get_time() / 1000;
+        if ((s_pmu == NULL || s_expander == NULL) &&
+            now_ms - last_hardware_retry >= HARDWARE_RETRY_INTERVAL_MS) {
+            if (s_pmu == NULL && pmu_start()) {
+                last_pmu_read = 0;
+                last_battery_read = -PMU_BATTERY_INTERVAL_MS;
+                first_pmu_sample = true;
+                ESP_LOGI(TAG, "AXP2101 recovered after startup retry");
+            }
+            if (s_expander == NULL && pwr_button_start()) {
+                ESP_LOGI(TAG, "TCA9554 PWR key recovered after startup retry");
+            }
+            last_hardware_retry = now_ms;
+        }
         if (now_pressed && !a_pressed) {
             a_pressed = true;
             a_long_sent = false;
@@ -348,9 +388,34 @@ static void input_task(void *argument)
     }
 }
 
-void board_input_start(void)
+void board_input_prepare_after_wake(void)
 {
-    xTaskCreate(input_task, "board_input", 4096, NULL, 6, NULL);
+    if (esp_sleep_get_wakeup_causes() == 0) return;
+
+    /* EXT1 wake pins remain routed through RTC IO after deep sleep.  Release
+       them before the touch driver and GPIO button input are initialized. */
+    esp_err_t button_result = rtc_gpio_deinit(BUTTON_A_GPIO);
+    esp_err_t touch_result = rtc_gpio_deinit(TOUCH_INTERRUPT_GPIO);
+    if (button_result != ESP_OK || touch_result != ESP_OK) {
+        ESP_LOGW(TAG, "RTC wake pin release failed: button=%s touch=%s",
+                 esp_err_to_name(button_result), esp_err_to_name(touch_result));
+    } else {
+        ESP_LOGI(TAG, "Released RTC wake pins for normal button/touch operation");
+    }
+}
+
+esp_err_t board_input_start(void)
+{
+    if (s_input_task != NULL) return ESP_ERR_INVALID_STATE;
+
+    s_input_task = xTaskCreateStatic(input_task, "board_input",
+                                    BOARD_INPUT_STACK_DEPTH, NULL, 6,
+                                    s_input_task_stack, &s_input_task_buffer);
+    if (s_input_task == NULL) {
+        ESP_LOGE(TAG, "Failed to create the input/power task");
+        return ESP_ERR_NO_MEM;
+    }
+    return ESP_OK;
 }
 
 void board_input_request_sleep(void)

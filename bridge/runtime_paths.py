@@ -1,9 +1,11 @@
-"""Locate application resources in both source and frozen Windows builds."""
+"""Locate application resources in source and packaged builds."""
 
 from __future__ import annotations
 
 import sys
 from pathlib import Path
+
+from platforms import current_platform
 
 
 def is_frozen() -> bool:
@@ -31,6 +33,11 @@ def application_root() -> Path:
 def tools_root() -> Path:
     """Return the optional application-private external tools directory."""
     return application_root() / "tools"
+
+
+def runtime_folder() -> Path:
+    """Return the active platform's writable application-data directory."""
+    return current_platform().runtime_folder()
 
 
 def project_root() -> Path:

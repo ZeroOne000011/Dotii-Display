@@ -1,6 +1,7 @@
 build/
 sdkconfig
 sdkconfig.old
+managed_components/
 .codx/
 __pycache__/
 *.py[cod]

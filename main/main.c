@@ -85,6 +85,7 @@ void app_main(void)
         ESP_ERROR_CHECK(nvs_error);
     }
     log_reset_diagnostics();
+    board_input_prepare_after_wake();
     ESP_ERROR_CHECK(device_config_init());
 
     QueueHandle_t queue = app_state_queue_create();
@@ -105,6 +106,6 @@ void app_main(void)
     state_ui_start(queue);
     bsp_display_unlock();
 
-    board_input_start();
+    ESP_ERROR_CHECK(board_input_start());
     ESP_LOGI(TAG, "Dotii %s started", esp_app_get_description()->version);
 }

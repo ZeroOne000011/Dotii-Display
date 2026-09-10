@@ -1,10 +1,18 @@
 # Dotii 桌面交互屏
 
-Dotii 是一套由 ESP32-S3 圆形 AMOLED 桌面屏与 Windows 端“Dotii 管理中心”组成的开源状态显示系统。它可以显示 Codex 用量与任务状态、Bambu Lab 打印进度、自定义内容，并通过 Dotii 表情提供轻量互动。当前版本为 **1.0.0**。
+Dotii 是一套由 ESP32-S3 圆形 AMOLED 桌面屏与 Windows 端“Dotii 管理中心”组成的开源状态显示系统。它可以显示 Codex 用量与任务状态、Bambu Lab 打印进度、自定义内容，并通过 Dotii 表情提供轻量互动。当前正式版本为 **1.1.0**。
 
 ![Dotii 桌面交互屏产品渲染图](assets/dotii-product-render.png)
 
-[下载 Windows 便携包](https://github.com/ZeroOne000011/Dotii-Display/releases/tag/v1.0.0) · [MakerWorld 模型与打印文件](https://makerworld.com.cn/zh/models/2918764-dotii-zhuo-mian-jiao-hu-ping#profileId-3421401) · [查看开发指南](开发指南.md)
+[下载 Windows 便携包](https://github.com/ZeroOne000011/Dotii-Display/releases/tag/v1.1.0) · [MakerWorld 模型与打印文件](https://makerworld.com.cn/zh/models/2918764-dotii-zhuo-mian-jiao-hu-ping#profileId-3421401) · [查看开发指南](开发指南.md)
+
+## 1.1 更新内容
+
+- 改进深睡唤醒后的按键、电量与充电状态恢复，设备会重新接管 RTC 引脚并持续恢复共享 I²C 外设。
+- Dotii 限时表情在管理中心和设备端同步回到待机状态，概览轮询不会重复重置倒计时。
+- 修复 Codex 自动采集线程的运行目录解析，增强连续采集与手动运行检测的稳定性。
+- 抽离电脑端平台接口，保持现有 Windows 行为，并为后续 macOS 适配建立清晰边界。
+- 固件、管理中心、Windows 可执行文件和打包流程统一使用 `1.1.0` 版本。
 
 ## 便携包快速上手
 
@@ -25,7 +33,7 @@ Dotii 是一套由 ESP32-S3 圆形 AMOLED 桌面屏与 Windows 端“Dotii 管�
 
 ### 五步开始使用
 
-1. 从 [Dotii v1.0.0 Release](https://github.com/ZeroOne000011/Dotii-Display/releases/tag/v1.0.0) 下载 `DotiiManagementCenter-1.0.0-portable.zip`，解压后保持目录结构不变。
+1. 从 [Dotii v1.1.0 Release](https://github.com/ZeroOne000011/Dotii-Display/releases/tag/v1.1.0) 下载 `DotiiManagementCenter-1.1.0-portable.zip`，解压后保持目录结构不变。
 2. 双击 `DotiiManagementCenter.exe`。程序会驻留在系统托盘，并在浏览器打开 Dotii 管理中心；默认地址为 `http://127.0.0.1:8787`。
 3. 用 USB 线连接 Dotii，在“设置”页面识别设备。首次使用时可通过“一键烧录”写入随包固件。
 4. 使用蓝牙配网，将 2.4 GHz Wi-Fi、管理中心地址和设备访问令牌同步到 Dotii。
@@ -124,7 +132,7 @@ State-Display/
 ├─ main/                 ESP32 固件业务代码与生成资源
 ├─ components/           项目修改过的 Waveshare BSP
 ├─ managed_components/   ESP-IDF 锁定依赖的本地副本
-├─ bridge/               管理中心后台、托盘、网页和回归测试
+├─ bridge/               管理中心后台、托盘、网页、平台适配层和回归测试
 ├─ firmware/             源码入口与发布程序共用的最小烧录固件包
 ├─ packaging/            Windows EXE 与安装器构建配置
 ├─ assets/               README 使用的产品图片
@@ -136,15 +144,15 @@ State-Display/
 
 ### 获取源码开发工具
 
-需要运行完整源码或离线复现 Windows 环境的开发者，可以从独立的 [Dotii 开发工具包 v1.0.0 Release](https://github.com/ZeroOne000011/Dotii-Display/releases/tag/tools-v1.0.0) 下载 `Dotii-Tools-Windows-x64-1.0.0.zip` 及其 SHA-256 校验文件。工具包包含项目当前验证过的 Node.js 24.16.0、npm 11.13.0、OpenAI Codex CLI 0.151.0 和 Windows x64 LGPL-only FFmpeg。
+公开源码不跟踪体积较大的 `tools/`。需要离线复现 Windows 环境的开发者，可以下载 [Dotii v1.1.0 便携包](https://github.com/ZeroOne000011/Dotii-Display/releases/tag/v1.1.0)，校验后将其中的 `tools/` 复制到源码根目录，使其与 `bridge/`、`main/`、`firmware/` 位于同一级。该目录包含项目当前验证过的 Node.js 24.16.0、npm 11.13.0、OpenAI Codex CLI 0.151.0 和 Windows x64 LGPL-only FFmpeg。
 
-校验通过后，将 ZIP 解压到源码根目录，使 `tools/` 与 `bridge/`、`main/`、`firmware/` 位于同一级。PowerShell 校验示例：
+PowerShell 校验示例：
 
 ```powershell
-(Get-FileHash .\Dotii-Tools-Windows-x64-1.0.0.zip -Algorithm SHA256).Hash
+(Get-FileHash .\DotiiManagementCenter-1.1.0-portable.zip -Algorithm SHA256).Hash
 ```
 
-工具包仅面向 Windows x64 源码开发；普通用户下载便携包无需单独下载或安装它。各工具目录中的许可证和上游说明文件必须保留。
+普通用户无需单独处理 `tools/`。开发者复制工具目录时必须保留其中的许可证和上游说明文件；也可以自行安装兼容版本并使用管理中心的既有回退查找路径。
 
 ### 从源码运行管理中心
 

@@ -32,7 +32,12 @@ const state = {
   selectedCodexTaskId: "",
   dotiiExpressions: [],
   dotiiFollowingLive: true,
+  dotiiEnabled: true,
   dotiiLiveExpression: "idle_breath",
+  dotiiLiveReason: "当前处于空闲状态",
+  dotiiLiveSignature: null,
+  dotiiLiveStartedAtMs: 0,
+  dotiiLiveTimer: null,
   dotiiDisplayedExpression: "idle_breath",
   dotiiConfig: null,
   dotiiConfigDirty: false,
@@ -134,6 +139,46 @@ function showDotiiExpression(expressionId, { live = false } = {}) {
     button.classList.toggle("selected", button.dataset.expressionId === expression.id);
   });
   byId("dotii-follow-live").hidden = live;
+}
+
+function applyDotiiLiveDisplay(expressionId, reason) {
+  state.dotiiLiveExpression = expressionId;
+  state.dotiiLiveReason = reason;
+  setText("dotii-nav-state", state.dotiiEnabled ? dotiiExpression(expressionId).label : "已关闭");
+  if (state.dotiiFollowingLive) {
+    showDotiiExpression(expressionId, { live: true });
+    setText("dotii-stage-reason", reason);
+  }
+}
+
+function resolveDotiiLiveDisplay(dotii, nowMs = Date.now()) {
+  const expressionId = typeof dotii.expression === "string" ? dotii.expression : "idle_breath";
+  const durationMs = Math.max(0, Number(dotii.state_duration_ms) || 0);
+  const signature = JSON.stringify([
+    dotii.state_token ?? dotii.state ?? "idle",
+    dotii.state_assigned === true,
+    durationMs,
+    expressionId,
+  ]);
+  if (state.dotiiLiveSignature !== signature) {
+    state.dotiiLiveSignature = signature;
+    state.dotiiLiveStartedAtMs = nowMs;
+    if (state.dotiiLiveTimer !== null) window.clearTimeout(state.dotiiLiveTimer);
+    state.dotiiLiveTimer = null;
+  }
+
+  const elapsedMs = Math.max(0, nowMs - state.dotiiLiveStartedAtMs);
+  const expired = durationMs > 0 && elapsedMs >= durationMs;
+  if (durationMs > 0 && !expired && state.dotiiLiveTimer === null) {
+    state.dotiiLiveTimer = window.setTimeout(() => {
+      state.dotiiLiveTimer = null;
+      if (state.dotiiLiveSignature !== signature) return;
+      applyDotiiLiveDisplay("idle_breath", "动画播放结束，已回到空闲状态");
+    }, durationMs - elapsedMs);
+  }
+  return expired
+    ? { expressionId: "idle_breath", reason: "动画播放结束，已回到空闲状态" }
+    : { expressionId, reason: dotii.reason || "当前处于空闲状态" };
 }
 
 async function loadDotiiExpressions() {
@@ -400,15 +445,11 @@ async function saveDotiiConfig(event) {
 }
 
 function renderDotii(dotii, enabled) {
-  const expressionId = typeof dotii.expression === "string" ? dotii.expression : "idle_breath";
-  state.dotiiLiveExpression = expressionId;
+  state.dotiiEnabled = enabled;
+  const live = resolveDotiiLiveDisplay(dotii);
   if (!state.moduleSaving.dotii) byId("dotii-enabled").checked = enabled;
   byId("dotii-content").hidden = !enabled;
-  setText("dotii-nav-state", enabled ? dotiiExpression(expressionId).label : "已关闭");
-  if (state.dotiiFollowingLive) {
-    showDotiiExpression(expressionId, { live: true });
-    setText("dotii-stage-reason", dotii.reason || "当前处于空闲状态");
-  }
+  applyDotiiLiveDisplay(live.expressionId, live.reason);
 }
 
 function closeUiSelect(control) {
@@ -1707,7 +1748,7 @@ byId("dotii-config-form").addEventListener("submit", saveDotiiConfig);
 byId("dotii-follow-live").addEventListener("click", () => {
   state.dotiiFollowingLive = true;
   showDotiiExpression(state.dotiiLiveExpression, { live: true });
-  setText("dotii-stage-reason", state.overview?.snapshot?.dotii?.reason || "当前处于空闲状态");
+  setText("dotii-stage-reason", state.dotiiLiveReason);
 });
 byId("bambu-form").addEventListener("submit", saveBambu);
 byId("bambu-reconnect").addEventListener("click", reconnectBambu);

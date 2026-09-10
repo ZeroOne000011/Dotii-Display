@@ -24,6 +24,8 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import quote, urlsplit, urlunsplit
 
+from platforms import current_platform
+
 
 MQTT_PORT = 8883
 CAMERA_PORT = 6000
@@ -524,7 +526,7 @@ class BambuService:
         ]
         process = subprocess.Popen(
             command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            creationflags=current_platform().hidden_creation_flags(),
         )
         with self._lock:
             self._camera_process = process

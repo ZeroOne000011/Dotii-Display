@@ -16,7 +16,8 @@ import webbrowser
 from ctypes import wintypes
 from pathlib import Path
 
-from runtime_paths import application_root, is_frozen, resource_path, sibling_executable
+from platforms import current_platform
+from runtime_paths import application_root, is_frozen, resource_path, runtime_folder, sibling_executable
 
 
 APP_NAME = "Dotii 管理中心"
@@ -126,11 +127,6 @@ if os.name == "nt":
             ("PeakProcessMemoryUsed", ctypes.c_size_t),
             ("PeakJobMemoryUsed", ctypes.c_size_t),
         ]
-
-
-def runtime_folder() -> Path:
-    local_app_data = os.environ.get("LOCALAPPDATA")
-    return (Path(local_app_data) if local_app_data else Path.home() / ".state-display") / "StateDisplay"
 
 
 def attach_kill_on_close_job(process: subprocess.Popen[bytes]) -> int:
@@ -490,7 +486,7 @@ def main() -> int:
         stdin=subprocess.DEVNULL,
         stdout=log_handle,
         stderr=subprocess.STDOUT,
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        creationflags=current_platform().hidden_creation_flags(),
     )
     job_handle: int | None = None
     pid_path = folder / "bridge-app.pid"

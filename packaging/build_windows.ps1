@@ -35,33 +35,48 @@ $BridgeVersionFile = Join-Path $CodxRoot "packaging-version-bridge.txt"
 $HostVersionFile = Join-Path $CodxRoot "packaging-version-host.txt"
 $FirmwareBuildRoot = Join-Path $ProjectRoot "build"
 $FirmwareRoot = Join-Path $ProjectRoot "firmware"
-$FirmwareManifest = Join-Path $FirmwareBuildRoot "flasher_args.json"
+$BuildFirmwareManifest = Join-Path $FirmwareBuildRoot "flasher_args.json"
+$BundledFirmwareManifest = Join-Path $FirmwareRoot "flasher_args.json"
 
-if (-not (Test-Path -LiteralPath $FirmwareManifest -PathType Leaf)) {
-    throw "Run idf.py build before packaging: build\flasher_args.json is missing."
+if (Test-Path -LiteralPath $BuildFirmwareManifest -PathType Leaf) {
+    $FirmwareSourceRoot = $FirmwareBuildRoot
+    $FirmwareManifest = $BuildFirmwareManifest
+    $RefreshFirmwareBundle = $true
+} elseif (Test-Path -LiteralPath $BundledFirmwareManifest -PathType Leaf) {
+    # Management-center-only releases may reuse the already validated formal
+    # firmware bundle. A fresh ESP-IDF build still takes precedence when present.
+    $FirmwareSourceRoot = $FirmwareRoot
+    $FirmwareManifest = $BundledFirmwareManifest
+    $RefreshFirmwareBundle = $false
+} else {
+    throw "No firmware manifest is available. Run idf.py build or restore firmware\flasher_args.json."
 }
 $FirmwarePayload = Get-Content -LiteralPath $FirmwareManifest -Raw | ConvertFrom-Json
 $FlashFiles = $FirmwarePayload.flash_files.PSObject.Properties
 if (@($FlashFiles).Count -eq 0) {
-    throw "build\flasher_args.json does not contain flash_files."
+    throw "$FirmwareManifest does not contain flash_files."
 }
-if (Test-Path -LiteralPath $FirmwareRoot) {
+if ($RefreshFirmwareBundle -and (Test-Path -LiteralPath $FirmwareRoot)) {
     Remove-Item -LiteralPath $FirmwareRoot -Recurse -Force
 }
-New-Item -ItemType Directory -Force -Path $FirmwareRoot | Out-Null
-Copy-Item -LiteralPath $FirmwareManifest -Destination $FirmwareRoot -Force
+if ($RefreshFirmwareBundle) {
+    New-Item -ItemType Directory -Force -Path $FirmwareRoot | Out-Null
+    Copy-Item -LiteralPath $FirmwareManifest -Destination $FirmwareRoot -Force
+}
 foreach ($FlashFile in $FlashFiles) {
     $RelativeName = [string]$FlashFile.Value
-    $Source = [IO.Path]::GetFullPath((Join-Path $FirmwareBuildRoot $RelativeName))
-    if (-not $Source.StartsWith(([IO.Path]::GetFullPath($FirmwareBuildRoot) + '\'), [StringComparison]::OrdinalIgnoreCase)) {
-        throw "Firmware image escapes build directory: $RelativeName"
+    $Source = [IO.Path]::GetFullPath((Join-Path $FirmwareSourceRoot $RelativeName))
+    if (-not $Source.StartsWith(([IO.Path]::GetFullPath($FirmwareSourceRoot) + '\'), [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Firmware image escapes its source directory: $RelativeName"
     }
     if (-not (Test-Path -LiteralPath $Source -PathType Leaf)) {
         throw "Firmware image is missing: $RelativeName"
     }
-    $Destination = Join-Path $FirmwareRoot $RelativeName
-    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $Destination) | Out-Null
-    Copy-Item -LiteralPath $Source -Destination $Destination -Force
+    if ($RefreshFirmwareBundle) {
+        $Destination = Join-Path $FirmwareRoot $RelativeName
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $Destination) | Out-Null
+        Copy-Item -LiteralPath $Source -Destination $Destination -Force
+    }
 }
 
 New-Item -ItemType Directory -Force -Path $CodxRoot | Out-Null

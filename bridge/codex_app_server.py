@@ -14,6 +14,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable
 
+from platforms import current_platform
 from runtime_paths import application_root
 
 
@@ -117,13 +118,11 @@ def _resolve_codex_command(explicit: str | None, runtime_folder: Path) -> list[s
     if environment:
         candidates.append(Path(environment).expanduser())
 
-    candidates.extend([
-        runtime_folder / "codex-cli" / "node_modules" / "@openai" / "codex" / "bin" / "codex.js",
-        application_root() / "tools" / "codex-cli" / "node_modules" / "@openai" / "codex" / "bin" / "codex.js",
-        Path(os.environ.get("APPDATA", "")) / "npm" / "node_modules" / "@openai" / "codex" / "bin" / "codex.js",
-    ])
-    bundled_node = application_root() / "tools" / "node" / "node.exe"
-    node = str(bundled_node) if bundled_node.is_file() else shutil.which("node")
+    platform = current_platform()
+    app_root = application_root()
+    candidates.extend(platform.codex_cli_candidates(runtime_folder, app_root))
+    bundled_node = next((path for path in platform.bundled_node_candidates(app_root) if path.is_file()), None)
+    node = str(bundled_node) if bundled_node else shutil.which("node")
     for candidate in candidates:
         if candidate.is_file():
             if candidate.suffix.lower() == ".js":
@@ -165,7 +164,7 @@ class AppServerClient:
                 encoding="utf-8",
                 errors="replace",
                 bufsize=1,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                creationflags=current_platform().hidden_creation_flags(),
             )
         except OSError as error:
             raise AppServerError(f"无法启动 Codex app-server：{error}") from error

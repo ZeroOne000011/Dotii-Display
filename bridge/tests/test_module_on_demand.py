@@ -43,6 +43,24 @@ class ModuleOnDemandTests(unittest.TestCase):
 
         self.assertIn("overview.codex_check", script)
 
+    def test_management_only_packaging_can_reuse_the_formal_firmware_bundle(self):
+        script = (BRIDGE.parent / "packaging" / "build_windows.ps1").read_text(encoding="utf-8")
+
+        self.assertIn("$BuildFirmwareManifest", script)
+        self.assertIn("$BundledFirmwareManifest", script)
+        self.assertIn("$RefreshFirmwareBundle = $false", script)
+
+    def test_http_response_ignores_clients_that_disconnect_early(self):
+        backend = (BRIDGE / "codex_bridge.py").read_text(encoding="utf-8")
+
+        self.assertIn("BrokenPipeError, ConnectionAbortedError, ConnectionResetError", backend)
+
+    def test_codex_collector_receives_the_resolved_runtime_path(self):
+        backend = (BRIDGE / "codex_bridge.py").read_text(encoding="utf-8")
+
+        self.assertIn('"runtime_folder": writable_root,', backend)
+        self.assertNotIn('"runtime_folder": runtime_folder,', backend)
+
     def test_codex_check_copy_matches_requested_text(self):
         html = (BRIDGE / "web" / "index.html").read_text(encoding="utf-8")
 
@@ -80,6 +98,14 @@ class ModuleOnDemandTests(unittest.TestCase):
 
         self.assertIn(".dotii-content[hidden]", styles)
         self.assertIn('byId("dotii-content").hidden = !enabled;', script)
+
+    def test_frontend_dotii_timed_state_returns_to_idle_without_poll_reset(self):
+        script = (BRIDGE / "web" / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn("state.dotiiLiveSignature !== signature", script)
+        self.assertIn("state.dotiiLiveStartedAtMs = nowMs", script)
+        self.assertIn('applyDotiiLiveDisplay("idle_breath"', script)
+        self.assertIn("durationMs - elapsedMs", script)
 
     def test_dotii_animation_manifest_points_to_packaged_assets(self):
         manifest_path = BRIDGE / "web" / "assets" / "expressions" / "animations.json"
