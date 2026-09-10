@@ -12,6 +12,7 @@
 #include "esp_system.h"
 #include "esp_timer.h"
 #include "host/ble_hs.h"
+#include "host/ble_store.h"
 #include "host/ble_uuid.h"
 #include "host/util/util.h"
 #include "nimble/nimble_port.h"
@@ -340,5 +341,17 @@ esp_err_t ble_bridge_start(void)
     nimble_port_freertos_init(host_task);
     s_started = true;
     ESP_LOGI(TAG, "Bluetooth bridge started");
+    return ESP_OK;
+}
+
+esp_err_t ble_bridge_clear_bonds(void)
+{
+    if (!s_prepared) return ESP_ERR_INVALID_STATE;
+    int rc = ble_store_clear();
+    if (rc != 0) {
+        ESP_LOGW(TAG, "Unable to clear Bluetooth bonds: %d", rc);
+        return ESP_FAIL;
+    }
+    ESP_LOGI(TAG, "Bluetooth bonds cleared");
     return ESP_OK;
 }

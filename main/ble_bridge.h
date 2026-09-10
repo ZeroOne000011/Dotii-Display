@@ -4,3 +4,4 @@
 
 esp_err_t ble_bridge_prepare(void);
 esp_err_t ble_bridge_start(void);
+esp_err_t ble_bridge_clear_bonds(void);

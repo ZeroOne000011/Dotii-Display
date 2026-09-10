@@ -5,9 +5,11 @@
 #include <time.h>
 
 #include "app_state.h"
+#include "ble_bridge.h"
 #include "board_input.h"
 #include "bsp/display.h"
 #include "connectivity.h"
+#include "device_config.h"
 #include "esp_attr.h"
 #include "esp_app_desc.h"
 #include "esp_heap_caps.h"
@@ -114,6 +116,8 @@ static lv_obj_t *s_battery_label;
 static lv_obj_t *s_settings_wifi;
 static lv_obj_t *s_settings_ip;
 static lv_obj_t *s_settings_bridge;
+static lv_obj_t *s_settings_reset_button;
+static lv_obj_t *s_settings_reset_detail;
 static lv_obj_t *s_brightness_slider;
 static lv_obj_t *s_custom_ring;
 static lv_obj_t *s_custom_image;
@@ -622,6 +626,50 @@ static void shutdown_hold_anim_exec(void *object, int32_t value)
     lv_color_t mixed = lv_color_mix(color(0x682A28), color(0x3A1D1D), (uint8_t)value);
     lv_obj_set_style_bg_color((lv_obj_t *)object, mixed, 0);
     lv_obj_set_style_bg_color((lv_obj_t *)object, mixed, LV_STATE_PRESSED);
+}
+
+static void provisioning_reset_hold_anim_exec(void *object, int32_t value)
+{
+    lv_color_t mixed = lv_color_mix(color(0x682A28), color(0x321A1A), (uint8_t)value);
+    lv_obj_set_style_bg_color((lv_obj_t *)object, mixed, 0);
+    lv_obj_set_style_bg_color((lv_obj_t *)object, mixed, LV_STATE_PRESSED);
+}
+
+static void provisioning_reset_anim_done(lv_anim_t *animation)
+{
+    (void)animation;
+    esp_err_t config_error = device_config_clear_provisioning();
+    if (config_error != ESP_OK) {
+        lv_label_set_text(s_settings_reset_detail, "重置失败，请重试");
+        lv_obj_set_style_bg_color(s_settings_reset_button, color(0x321A1A), 0);
+        lv_obj_set_style_bg_color(s_settings_reset_button, color(0x4A2422), LV_STATE_PRESSED);
+        return;
+    }
+    (void)ble_bridge_clear_bonds();
+    lv_label_set_text(s_settings_reset_detail, "已清除，正在重新启动");
+    esp_restart();
+}
+
+static void provisioning_reset_event(lv_event_t *event)
+{
+    lv_event_code_t code = lv_event_get_code(event);
+    lv_obj_t *button = lv_event_get_current_target(event);
+    if (code == LV_EVENT_PRESSED) {
+        lv_label_set_text(s_settings_reset_detail, "继续按住以确认");
+        lv_anim_t animation;
+        lv_anim_init(&animation);
+        lv_anim_set_var(&animation, button);
+        lv_anim_set_values(&animation, 0, 255);
+        lv_anim_set_duration(&animation, 1200);
+        lv_anim_set_exec_cb(&animation, provisioning_reset_hold_anim_exec);
+        lv_anim_set_completed_cb(&animation, provisioning_reset_anim_done);
+        lv_anim_start(&animation);
+    } else if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
+        lv_anim_delete(button, provisioning_reset_hold_anim_exec);
+        lv_obj_set_style_bg_color(button, color(0x321A1A), 0);
+        lv_obj_set_style_bg_color(button, color(0x4A2422), LV_STATE_PRESSED);
+        lv_label_set_text(s_settings_reset_detail, "长按 1.2 秒，清除配网信息");
+    }
 }
 
 static void restart_anim_done(lv_anim_t *animation)
@@ -1953,6 +2001,34 @@ static void build_settings(void)
     snprintf(device_info, sizeof(device_info), "Dotii %s · ESP-IDF %s",
              esp_app_get_description()->version, esp_get_idf_version());
     make_setting_card(s_settings_list, "设备", device_info);
+
+    s_settings_reset_button = lv_button_create(s_settings_list);
+    lv_obj_remove_style_all(s_settings_reset_button);
+    lv_obj_set_width(s_settings_reset_button, LV_PCT(100));
+    lv_obj_set_height(s_settings_reset_button, 88);
+    lv_obj_set_style_radius(s_settings_reset_button, 20, 0);
+    lv_obj_set_style_bg_color(s_settings_reset_button, color(0x321A1A), 0);
+    lv_obj_set_style_bg_color(s_settings_reset_button, color(0x4A2422), LV_STATE_PRESSED);
+    lv_obj_set_style_bg_opa(s_settings_reset_button, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_opa(s_settings_reset_button, LV_OPA_COVER, LV_STATE_PRESSED);
+    lv_obj_set_style_border_width(s_settings_reset_button, 0, 0);
+    lv_obj_set_style_pad_all(s_settings_reset_button, 12, 0);
+    lv_obj_set_flex_flow(s_settings_reset_button, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(s_settings_reset_button, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    lv_obj_set_style_pad_row(s_settings_reset_button, 4, 0);
+    lv_obj_remove_flag(s_settings_reset_button, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t *reset_title = make_label(s_settings_reset_button, "重置配网", &ui_font_detail_20, COLOR_DANGER);
+    lv_obj_set_width(reset_title, LV_PCT(100));
+    lv_label_set_long_mode(reset_title, LV_LABEL_LONG_DOT);
+    lv_obj_set_style_text_align(reset_title, LV_TEXT_ALIGN_LEFT, 0);
+    s_settings_reset_detail = make_label(s_settings_reset_button,
+                                         "长按 1.2 秒，清除配网信息",
+                                         &ui_font_detail_20, COLOR_MUTED);
+    lv_obj_set_width(s_settings_reset_detail, LV_PCT(100));
+    lv_label_set_long_mode(s_settings_reset_detail, LV_LABEL_LONG_WRAP);
+    lv_obj_set_style_text_align(s_settings_reset_detail, LV_TEXT_ALIGN_LEFT, 0);
+    lv_obj_add_event_cb(s_settings_reset_button, provisioning_reset_event, LV_EVENT_ALL, NULL);
 
     register_page_scroll_target(s_settings, s_settings_list);
 

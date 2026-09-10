@@ -25,6 +25,11 @@ STATUS_UUID = "7b4e0004-4db4-4c72-a729-ea5187241a43"
 MAX_CONFIG_BYTES = 1024
 
 
+def _is_stale_windows_pairing_error(error: BaseException) -> bool:
+    message = str(error).casefold()
+    return "could not start notify" in message and "unreachable" in message
+
+
 def _hidden_creation_flags() -> int:
     return current_platform().hidden_creation_flags()
 
@@ -268,10 +273,7 @@ class BluetoothBridge:
         )
         return self._start_worker(self._configure, address, body, name="dotii-ble-configure")
 
-    async def _configure_async(self, address: str, body: bytes) -> dict[str, Any]:
-        client_class, _ = self._bleak()
-        with self.lock:
-            target = self._ble_devices.get(address, address)
+    async def _configure_once(self, client_class: Any, target: Any, body: bytes) -> dict[str, Any]:
         response_event = asyncio.Event()
         response: dict[str, Any] = {}
 
@@ -286,9 +288,6 @@ class BluetoothBridge:
             except (UnicodeDecodeError, json.JSONDecodeError):
                 pass
 
-        # On Windows, pairing as part of the initial connection is materially
-        # more reliable than connecting first and invoking PairAsync later.
-        # The encrypted characteristics remain the final authorization check.
         async with client_class(target, timeout=30.0, pair=True) as client:
             await client.start_notify(RESPONSE_UUID, notification)
             for packet in _configuration_packets(body):
@@ -299,6 +298,41 @@ class BluetoothBridge:
                 raw = await client.read_gatt_char(RESPONSE_UUID)
                 response = json.loads(bytes(raw).decode("utf-8"))
             return response
+
+    async def _configure_async(self, address: str, body: bytes) -> dict[str, Any]:
+        client_class, _ = self._bleak()
+        with self.lock:
+            target = self._ble_devices.get(address, address)
+
+        # On Windows, pairing as part of the initial connection is materially
+        # more reliable than connecting first and invoking PairAsync later.
+        # A Dotii provisioning reset deliberately clears its bond, but Windows
+        # can retain the old pairing and GATT cache. In that state PairAsync
+        # reports "already paired" and enabling the encrypted response notify
+        # characteristic fails as Unreachable. Remove the stale Windows bond
+        # once, then create a fresh client so pairing and service discovery run
+        # again before any Wi-Fi credentials are written.
+        try:
+            return await self._configure_once(client_class, target, body)
+        except Exception as error:
+            if self.platform.name != "windows" or not _is_stale_windows_pairing_error(error):
+                raise
+
+            with self.lock:
+                self.operation_detail = "检测到旧蓝牙配对，正在自动重新配对"
+                self.updated_at_epoch = int(time.time())
+
+            recovery_client = client_class(target, timeout=15.0)
+            try:
+                await recovery_client.unpair()
+            except Exception as recovery_error:
+                raise OSError(f"检测到失效的 Windows 蓝牙配对，但自动清除失败：{recovery_error}") from error
+            finally:
+                if getattr(recovery_client, "is_connected", False):
+                    await recovery_client.disconnect()
+
+            await asyncio.sleep(0.75)
+            return await self._configure_once(client_class, target, body)
 
     def _configure(self, address: str, body: bytes) -> None:
         try:

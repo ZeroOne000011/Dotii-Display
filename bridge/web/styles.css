@@ -336,6 +336,7 @@ input:checked + .switch-track::after { transform: translateX(18px); background: 
 .bambu-camera-toggle { display: flex; align-items: center; gap: 9px; margin-top: 16px; color: var(--muted-strong); font-size: 13px; }
 .form-actions, .bambu-actions { display: flex; gap: 9px; margin-top: 20px; }
 .bambu-help { margin: 18px 0 0; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; line-height: 1.65; }
+.bambu-help.bluetooth-recovery-help { margin-top: 10px; padding-top: 0; border-top: 0; }
 .bambu-progress { color: var(--bambu); font-size: 31px; letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
 .bambu-dashboard { padding: 28px; }
 .bambu-dashboard-heading { align-items: center; margin-bottom: 17px; }

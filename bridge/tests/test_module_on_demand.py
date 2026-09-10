@@ -200,6 +200,7 @@ class ModuleOnDemandTests(unittest.TestCase):
     def test_frontend_removes_dependency_panels_and_maintenance_actions(self):
         html = (BRIDGE / "web" / "index.html").read_text(encoding="utf-8")
         script = (BRIDGE / "web" / "app.js").read_text(encoding="utf-8")
+        styles = (BRIDGE / "web" / "styles.css").read_text(encoding="utf-8")
         backend = (BRIDGE / "codex_bridge.py").read_text(encoding="utf-8")
 
         self.assertNotIn("Codex 连接", html)
@@ -213,6 +214,12 @@ class ModuleOnDemandTests(unittest.TestCase):
         self.assertNotIn("/api/v1/admin/dependencies/install", backend)
         self.assertNotIn("/api/v1/admin/bambu/ffmpeg/install", backend)
         self.assertIn("保存并连接", html)
+        self.assertIn("长按“重置配网”", html)
+        self.assertIn("请长按 Dotii 右侧按钮进入设置", html)
+        self.assertIn('class="bambu-help bluetooth-recovery-help"', html)
+        self.assertIn(".bambu-help.bluetooth-recovery-help", styles)
+        self.assertIn("border-top: 0", styles)
+        self.assertNotIn("固件、显示与休眠设置不受影响", html)
         self.assertIn("相机画面暂不可用", html)
         self.assertIn("resolve_ffmpeg", backend)
 

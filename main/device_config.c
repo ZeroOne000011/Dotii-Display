@@ -68,3 +68,14 @@ esp_err_t device_config_save(const device_config_values_t *values)
     return error;
 }
 
+esp_err_t device_config_clear_provisioning(void)
+{
+    nvs_handle_t handle;
+    esp_err_t error = nvs_open(NAMESPACE, NVS_READWRITE, &handle);
+    if (error != ESP_OK) return error;
+    error = nvs_erase_all(handle);
+    if (error == ESP_OK) error = nvs_commit(handle);
+    nvs_close(handle);
+    if (error == ESP_OK) memset(&s_config, 0, sizeof(s_config));
+    return error;
+}

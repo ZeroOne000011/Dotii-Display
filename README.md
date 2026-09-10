@@ -1,18 +1,17 @@
 # Dotii 桌面交互屏
 
-Dotii 是一套由 ESP32-S3 圆形 AMOLED 桌面屏与 Windows 端“Dotii 管理中心”组成的开源状态显示系统。它可以显示 Codex 用量与任务状态、Bambu Lab 打印进度、自定义内容，并通过 Dotii 表情提供轻量互动。当前正式版本为 **1.1.0**。
+Dotii 是一套由 ESP32-S3 圆形 AMOLED 桌面屏与 Windows 端“Dotii 管理中心”组成的开源状态显示系统。它可以显示 Codex 用量与任务状态、Bambu Lab 打印进度、自定义内容，并通过 Dotii 表情提供轻量互动。当前正式版本为 **1.1.1**。
 
 ![Dotii 桌面交互屏产品渲染图](assets/dotii-product-render.png)
 
-[下载 Windows 便携包](https://github.com/ZeroOne000011/Dotii-Display/releases/tag/v1.1.0) · [MakerWorld 模型与打印文件](https://makerworld.com.cn/zh/models/2918764-dotii-zhuo-mian-jiao-hu-ping#profileId-3421401) · [查看开发指南](开发指南.md)
+[下载 Windows 便携包](https://github.com/ZeroOne000011/Dotii-Display/releases/tag/v1.1.1) · [MakerWorld 模型与打印文件](https://makerworld.com.cn/zh/models/2918764-dotii-zhuo-mian-jiao-hu-ping#profileId-3421401) · [查看开发指南](开发指南.md)
 
-## 1.1 更新内容
+## 1.1.1 更新内容
 
-- 改进深睡唤醒后的按键、电量与充电状态恢复，设备会重新接管 RTC 引脚并持续恢复共享 I²C 外设。
-- Dotii 限时表情在管理中心和设备端同步回到待机状态，概览轮询不会重复重置倒计时。
-- 修复 Codex 自动采集线程的运行目录解析，增强连续采集与手动运行检测的稳定性。
-- 抽离电脑端平台接口，保持现有 Windows 行为，并为后续 macOS 适配建立清晰边界。
-- 固件、管理中心、Windows 可执行文件和打包流程统一使用 `1.1.0` 版本。
+- Dotii“设置”页面新增“重置配网”：长按 1.2 秒后清除 Wi-Fi、管理中心绑定和蓝牙配对并重启，保留固件、显示与休眠设置。
+- 调整“重置配网”卡片尺寸和圆角，使其与设置页信息卡保持一致。
+- 管理中心补充换电脑后的恢复说明，并修复 Dotii 重置后 Windows 遗留旧蓝牙配对导致的 `Unreachable` 配置失败；检测到该状态时会自动解除旧配对并重试。
+- 固件、管理中心、Windows 可执行文件和打包流程统一使用 `1.1.1` 版本。
 
 ## 便携包快速上手
 
@@ -33,7 +32,7 @@ Dotii 是一套由 ESP32-S3 圆形 AMOLED 桌面屏与 Windows 端“Dotii 管�
 
 ### 五步开始使用
 
-1. 从 [Dotii v1.1.0 Release](https://github.com/ZeroOne000011/Dotii-Display/releases/tag/v1.1.0) 下载 `DotiiManagementCenter-1.1.0-portable.zip`，解压后保持目录结构不变。
+1. 从 [Dotii v1.1.1 Release](https://github.com/ZeroOne000011/Dotii-Display/releases/tag/v1.1.1) 下载 `DotiiManagementCenter-1.1.1-portable.zip`，解压后保持目录结构不变。
 2. 双击 `DotiiManagementCenter.exe`。程序会驻留在系统托盘，并在浏览器打开 Dotii 管理中心；默认地址为 `http://127.0.0.1:8787`。
 3. 用 USB 线连接 Dotii，在“设置”页面识别设备。首次使用时可通过“一键烧录”写入随包固件。
 4. 使用蓝牙配网，将 2.4 GHz Wi-Fi、管理中心地址和设备访问令牌同步到 Dotii。
@@ -47,7 +46,7 @@ Dotii 是一套由 ESP32-S3 圆形 AMOLED 桌面屏与 Windows 端“Dotii 管�
 - **Bambu 打印状态**：通过局域网读取打印进度、温度、耗材和图层，并在打印机支持时显示相机画面。
 - **自定义页面**：编辑文字、颜色、图片和圆环，保存后同步到 466 × 466 圆屏。
 - **Dotii 表情**：显示待机、眨眼、连接、工作、完成、失败等状态动画。
-- **设备管理**：提供蓝牙配网、显示设置、休眠设置、登录自启动和受保护的一键烧录。
+- **设备管理**：提供蓝牙配网、重置配网、显示设置、休眠设置、登录自启动和受保护的一键烧录。
 
 ### 常见问题
 
@@ -89,7 +88,7 @@ Dotii 是一套由 ESP32-S3 圆形 AMOLED 桌面屏与 Windows 端“Dotii 管�
 <details>
 <summary><strong>更换路由器或电脑局域网地址后无法连接</strong></summary>
 
-重新执行蓝牙配网并同步新的网络与管理中心地址，通常无需重新烧录固件。
+请长按 Dotii 右侧按钮进入“设置”，再长按“重置配网”1.2 秒。设备会清除 Wi-Fi、管理中心绑定和蓝牙配对后重启；随后在新电脑的 Dotii 管理中心重新扫描并配网，通常无需重新烧录固件。若 Windows 仍保留旧配对，1.1.1 管理中心会在配置时自动解除旧配对并重新连接。
 
 </details>
 
@@ -144,12 +143,12 @@ State-Display/
 
 ### 获取源码开发工具
 
-公开源码不跟踪体积较大的 `tools/`。需要离线复现 Windows 环境的开发者，可以下载 [Dotii v1.1.0 便携包](https://github.com/ZeroOne000011/Dotii-Display/releases/tag/v1.1.0)，校验后将其中的 `tools/` 复制到源码根目录，使其与 `bridge/`、`main/`、`firmware/` 位于同一级。该目录包含项目当前验证过的 Node.js 24.16.0、npm 11.13.0、OpenAI Codex CLI 0.151.0 和 Windows x64 LGPL-only FFmpeg。
+公开源码不跟踪体积较大的 `tools/`。需要离线复现 Windows 环境的开发者，可以下载 [Dotii v1.1.1 便携包](https://github.com/ZeroOne000011/Dotii-Display/releases/tag/v1.1.1)，校验后将其中的 `tools/` 复制到源码根目录，使其与 `bridge/`、`main/`、`firmware/` 位于同一级。该目录包含项目当前验证过的 Node.js 24.16.0、npm 11.13.0、OpenAI Codex CLI 0.151.0 和 Windows x64 LGPL-only FFmpeg。
 
 PowerShell 校验示例：
 
 ```powershell
-(Get-FileHash .\DotiiManagementCenter-1.1.0-portable.zip -Algorithm SHA256).Hash
+(Get-FileHash .\DotiiManagementCenter-1.1.1-portable.zip -Algorithm SHA256).Hash
 ```
 
 普通用户无需单独处理 `tools/`。开发者复制工具目录时必须保留其中的许可证和上游说明文件；也可以自行安装兼容版本并使用管理中心的既有回退查找路径。
