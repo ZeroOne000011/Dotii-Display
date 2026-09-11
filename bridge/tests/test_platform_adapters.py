@@ -77,20 +77,19 @@ class MacOSPlatformAdapterTests(unittest.TestCase):
         self.assertLess(codex.index(Path("/app/tools/codex/bin/codex")), codex.index(Path("/opt/homebrew/bin/codex")))
 
     def test_app_bundle_separates_resources_and_helper_executables(self) -> None:
-        executable = Path("/Applications/Dotii Management Center.app/Contents/Resources/DotiiBridgeRuntime/DotiiBridge")
-        with (
-            mock.patch.object(runtime_paths.sys, "platform", "darwin"),
-            mock.patch.object(runtime_paths.sys, "executable", str(executable)),
-            mock.patch.object(runtime_paths.sys, "frozen", True, create=True),
-        ):
-            self.assertEqual(
-                runtime_paths.application_root(),
-                Path("/Applications/Dotii Management Center.app/Contents/Resources"),
-            )
-            self.assertEqual(
-                runtime_paths.sibling_executable("DotiiManagementCenter"),
-                Path("/Applications/Dotii Management Center.app/Contents/MacOS/DotiiManagementCenter"),
-            )
+        with tempfile.TemporaryDirectory(dir=BRIDGE.parent / ".codx") as temporary:
+            contents = Path(temporary) / "Dotii Management Center.app" / "Contents"
+            executable = contents / "Resources" / "DotiiBridgeRuntime" / "DotiiBridge"
+            with (
+                mock.patch.object(runtime_paths.sys, "platform", "darwin"),
+                mock.patch.object(runtime_paths.sys, "executable", str(executable)),
+                mock.patch.object(runtime_paths.sys, "frozen", True, create=True),
+            ):
+                self.assertEqual(runtime_paths.application_root(), contents / "Resources")
+                self.assertEqual(
+                    runtime_paths.sibling_executable("DotiiManagementCenter"),
+                    contents / "MacOS" / "DotiiManagementCenter",
+                )
 
     def test_platform_capabilities_match_implemented_macos_boundaries(self) -> None:
         adapter = MacOSPlatformAdapter()

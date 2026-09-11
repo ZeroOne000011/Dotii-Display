@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 import sys
 import tempfile
 import threading
@@ -100,7 +101,8 @@ class BluetoothPacketTests(unittest.TestCase):
             restored = BluetoothBridge(path, platform_adapter=MacOSPlatformAdapter())
 
             self.assertEqual(restored.last_address, identifier)
-            self.assertEqual(path.joinpath("bluetooth.json").stat().st_mode & 0o777, 0o600)
+            if os.name == "posix":
+                self.assertEqual(path.joinpath("bluetooth.json").stat().st_mode & 0o777, 0o600)
 
 
 class MacOSBluetoothTests(unittest.IsolatedAsyncioTestCase):
