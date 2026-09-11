@@ -4,6 +4,7 @@ import sys
 import tempfile
 import unittest
 import json
+import plistlib
 import re
 from pathlib import Path
 from unittest import mock
@@ -14,6 +15,8 @@ sys.path.insert(0, str(BRIDGE))
 import bambu_client  # noqa: E402
 import codex_app_server  # noqa: E402
 import codex_bridge  # noqa: E402
+from platforms.macos import MacOSPlatformAdapter  # noqa: E402
+from platforms.windows import WindowsPlatformAdapter  # noqa: E402
 from bambu_client import BambuConfigStore, BambuService  # noqa: E402
 from codex_bridge import (  # noqa: E402
     CodexCheckStore,
@@ -21,6 +24,7 @@ from codex_bridge import (  # noqa: E402
     resolve_ffmpeg,
     validate_custom_config,
     validate_module_config,
+    watch_parent,
 )
 
 
@@ -49,6 +53,58 @@ class ModuleOnDemandTests(unittest.TestCase):
         self.assertIn("$BuildFirmwareManifest", script)
         self.assertIn("$BundledFirmwareManifest", script)
         self.assertIn("$RefreshFirmwareBundle = $false", script)
+
+    def test_macos_info_plist_declares_bluetooth_usage(self):
+        plist_path = BRIDGE.parent / "packaging" / "macos" / "Info.plist"
+        with plist_path.open("rb") as stream:
+            info = plistlib.load(stream)
+
+        self.assertEqual(info["LSMinimumSystemVersion"], "13.0")
+        self.assertIn("Dotii", info["NSBluetoothAlwaysUsageDescription"])
+        self.assertIn("Dotii", info["NSLocalNetworkUsageDescription"])
+        self.assertEqual(info["CFBundleShortVersionString"], "1.1.1")
+        self.assertEqual(info["CFBundleIconName"], "AppIcon")
+
+    def test_macos_brand_icons_are_complete_and_used_by_native_host(self):
+        root = BRIDGE.parent
+        app_root = root / "macos" / "DotiiManagementCenter" / "DotiiManagementCenter"
+        app_icon = app_root / "Assets.xcassets" / "AppIcon.appiconset"
+        status_icon = app_root / "Assets.xcassets" / "StatusBarIcon.imageset"
+        swift = (app_root / "main.swift").read_text(encoding="utf-8")
+
+        for asset_set in (app_icon, status_icon):
+            manifest = json.loads((asset_set / "Contents.json").read_text(encoding="utf-8"))
+            for image in manifest["images"]:
+                self.assertTrue((asset_set / image["filename"]).is_file())
+
+        status_manifest = json.loads((status_icon / "Contents.json").read_text(encoding="utf-8"))
+        self.assertEqual(status_manifest["properties"]["template-rendering-intent"], "template")
+        self.assertIn('NSImage(named: "StatusBarIcon")', swift)
+        self.assertIn("isTemplate = true", swift)
+
+    def test_macos_native_host_and_packaging_sources_are_present(self):
+        root = BRIDGE.parent
+        swift = (root / "macos" / "DotiiManagementCenter" / "DotiiManagementCenter" / "main.swift").read_text(encoding="utf-8")
+        packaging = (root / "packaging" / "macos" / "build_macos.sh").read_text(encoding="utf-8")
+
+        self.assertIn("NSStatusBar.system.statusItem", swift)
+        self.assertIn("SMAppService.mainApp", swift)
+        self.assertIn('"--parent-pid"', swift)
+        self.assertIn('"--host", "0.0.0.0"', swift)
+        self.assertNotIn('"--host", "127.0.0.1"', swift)
+        self.assertIn("PYINSTALLER_CONFIG_DIR", packaging)
+        self.assertIn("codesign --verify", packaging)
+        self.assertIn("notarytool submit", packaging)
+
+    def test_parent_watchdog_stops_orphaned_backend(self):
+        stop = mock.Mock()
+        stop.wait.side_effect = [False]
+        server = mock.Mock()
+
+        with mock.patch.object(codex_bridge.os, "kill", side_effect=ProcessLookupError):
+            watch_parent(43210, server, stop)
+
+        server.shutdown.assert_called_once_with()
 
     def test_http_response_ignores_clients_that_disconnect_early(self):
         backend = (BRIDGE / "codex_bridge.py").read_text(encoding="utf-8")
@@ -137,6 +193,7 @@ class ModuleOnDemandTests(unittest.TestCase):
 
             with (
                 mock.patch.object(codex_app_server, "application_root", return_value=folder),
+                mock.patch.object(codex_app_server, "current_platform", return_value=WindowsPlatformAdapter()),
                 mock.patch.object(codex_app_server.shutil, "which") as which,
             ):
                 command = codex_app_server._resolve_codex_command(None, folder / "runtime")
@@ -153,6 +210,53 @@ class ModuleOnDemandTests(unittest.TestCase):
 
             with (
                 mock.patch.object(codex_bridge, "tools_root", return_value=folder / "tools"),
+                mock.patch.object(codex_bridge, "current_platform", return_value=WindowsPlatformAdapter()),
+                mock.patch.object(codex_bridge.shutil, "which") as which,
+            ):
+                resolved = resolve_ffmpeg(folder / "runtime")
+
+            which.assert_not_called()
+            self.assertEqual(resolved, str(bundled.resolve()))
+
+    def test_macos_bundled_codex_uses_unix_node_without_path_lookup(self):
+        with tempfile.TemporaryDirectory(dir=BRIDGE.parent / ".codx") as temporary:
+            folder = Path(temporary)
+            script = (
+                folder
+                / "tools"
+                / "codex-cli"
+                / "node_modules"
+                / "@openai"
+                / "codex"
+                / "bin"
+                / "codex.js"
+            )
+            script.parent.mkdir(parents=True)
+            script.write_text("", encoding="utf-8")
+            node = folder / "tools" / "node" / "bin" / "node"
+            node.parent.mkdir(parents=True)
+            node.touch()
+
+            with (
+                mock.patch.object(codex_app_server, "application_root", return_value=folder),
+                mock.patch.object(codex_app_server, "current_platform", return_value=MacOSPlatformAdapter()),
+                mock.patch.object(codex_app_server.shutil, "which") as which,
+            ):
+                command = codex_app_server._resolve_codex_command(None, folder / "runtime")
+
+            which.assert_not_called()
+            self.assertEqual(command, [str(node), str(script)])
+
+    def test_macos_bundled_ffmpeg_is_preferred_without_path_lookup(self):
+        with tempfile.TemporaryDirectory(dir=BRIDGE.parent / ".codx") as temporary:
+            folder = Path(temporary)
+            bundled = folder / "tools" / "ffmpeg" / "bin" / "ffmpeg"
+            bundled.parent.mkdir(parents=True)
+            bundled.touch()
+
+            with (
+                mock.patch.object(codex_bridge, "tools_root", return_value=folder / "tools"),
+                mock.patch.object(codex_bridge, "current_platform", return_value=MacOSPlatformAdapter()),
                 mock.patch.object(codex_bridge.shutil, "which") as which,
             ):
                 resolved = resolve_ffmpeg(folder / "runtime")
@@ -222,6 +326,32 @@ class ModuleOnDemandTests(unittest.TestCase):
         self.assertNotIn("固件、显示与休眠设置不受影响", html)
         self.assertIn("相机画面暂不可用", html)
         self.assertIn("resolve_ffmpeg", backend)
+
+    def test_bluetooth_setup_uses_reset_flow_instead_of_migration_token(self):
+        html = (BRIDGE / "web" / "index.html").read_text(encoding="utf-8")
+        script = (BRIDGE / "web" / "app.js").read_text(encoding="utf-8")
+        backend = (BRIDGE / "codex_bridge.py").read_text(encoding="utf-8")
+
+        self.assertNotIn('id="bluetooth-current-token"', html)
+        self.assertNotIn("current_token: currentToken", script)
+        self.assertNotIn('byId("bluetooth-current-token")', script)
+        self.assertIn("长按“重置配网”", html)
+        self.assertIn('current_token=payload.get("current_token", "")', backend)
+        self.assertIn('connected ? "已连接" : recognized ? "已识别"', script)
+        self.assertIn('blocked ? "需要处理"', script)
+        self.assertIn("已识别 Dotii ESP32-S3，可执行固件烧录", script)
+        self.assertIn("登录系统后自动启动", html)
+        self.assertNotIn("登录 Windows 后自动启动", html)
+
+    def test_macos_build_rejects_stale_bundled_web_assets(self):
+        packaging = (BRIDGE.parent / "packaging" / "macos" / "build_macos.sh").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn('for asset in index.html app.js styles.css markdown.js', packaging)
+        self.assertIn('Bundled web asset mismatch', packaging)
+        self.assertIn('/bin/ln -s /Applications', packaging)
+        self.assertIn('cd "$OUTPUT"', packaging)
 
 
 if __name__ == "__main__":

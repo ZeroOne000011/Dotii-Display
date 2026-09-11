@@ -50,6 +50,7 @@ class WindowsPlatformAdapter:
     name = "windows"
     startup_available = True
     bluetooth_available = True
+    bluetooth_pair_on_connect = True
     serial_flash_available = True
 
     def runtime_folder(self) -> Path:

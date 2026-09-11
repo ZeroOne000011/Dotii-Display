@@ -6,6 +6,7 @@ import asyncio
 import importlib
 import json
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -23,6 +24,10 @@ COMMAND_UUID = "7b4e0002-4db4-4c72-a729-ea5187241a43"
 RESPONSE_UUID = "7b4e0003-4db4-4c72-a729-ea5187241a43"
 STATUS_UUID = "7b4e0004-4db4-4c72-a729-ea5187241a43"
 MAX_CONFIG_BYTES = 1024
+BLUETOOTH_AVAILABILITY_STATES = {"denied", "bluetooth_off", "unavailable"}
+COREBLUETOOTH_IDENTIFIER_PATTERN = re.compile(
+    r"\b[0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}\b"
+)
 
 
 def _is_stale_windows_pairing_error(error: BaseException) -> bool:
@@ -30,12 +35,45 @@ def _is_stale_windows_pairing_error(error: BaseException) -> bool:
     return "could not start notify" in message and "unreachable" in message
 
 
+def _bluetooth_error(error: Exception) -> tuple[str, str]:
+    """Return a stable availability state and a user-facing diagnostic."""
+    message = str(error)
+    if "peer removed pairing information" in message.casefold():
+        return (
+            "stale_pairing",
+            "Dotii 已重置配对，但这台 Mac 仍保留旧记录；请在系统设置 > 蓝牙中忽略 Dotii，然后重新扫描",
+        )
+    if "device with address" in message.casefold() and "was not found" in message.casefold():
+        return "not_found", "暂时无法重新连接已识别的 Dotii，请点击“扫描 Dotii”重试"
+    if isinstance(error, TimeoutError):
+        return "timeout", "等待蓝牙连接或系统配对确认超时，请确认 Dotii 在附近后重试"
+    reason = str(getattr(getattr(error, "reason", None), "name", "")).upper()
+    if reason == "POWERED_OFF":
+        return "bluetooth_off", "蓝牙已关闭，请先在系统设置中打开蓝牙"
+    if reason in {"DENIED_BY_USER", "DENIED_BY_SYSTEM", "DENIED_BY_UNKNOWN"}:
+        return (
+            "denied",
+            "蓝牙权限已被拒绝，请在系统设置 > 隐私与安全性 > 蓝牙中允许 Dotii 管理中心",
+        )
+    if reason in {"NO_BLUETOOTH", "NO_BLE_CENTRAL_ROLE"}:
+        return "unavailable", "当前 Mac 没有可用的低功耗蓝牙功能"
+    if reason == "UNKNOWN":
+        return "unavailable", "macOS 暂时无法使用蓝牙，请检查系统蓝牙与隐私设置"
+    public_message = COREBLUETOOTH_IDENTIFIER_PATTERN.sub("本机蓝牙标识", message)
+    return "error", public_message[:170] or "未知蓝牙错误"
+
+
 def _hidden_creation_flags() -> int:
     return current_platform().hidden_creation_flags()
 
 
 def _configuration_payload(
-    *, ssid: Any, password: Any, bridge_url: str, bridge_token: str
+    *,
+    ssid: Any,
+    password: Any,
+    bridge_url: str,
+    bridge_token: str,
+    current_token: Any = "",
 ) -> bytes:
     if not isinstance(ssid, str) or not 1 <= len(ssid.encode("utf-8")) <= 32:
         raise ValueError("Wi-Fi 名称必须为 1–32 字节")
@@ -47,11 +85,15 @@ def _configuration_payload(
         raise ValueError("管理中心地址过长")
     if not isinstance(bridge_token, str) or not 16 <= len(bridge_token) <= 64:
         raise ValueError("设备访问令牌无效")
+    if not isinstance(current_token, str):
+        raise ValueError("当前设备令牌无效")
+    if current_token and not 16 <= len(current_token) <= 64:
+        raise ValueError("当前设备令牌无效")
     body = json.dumps(
         {
             "v": 1,
             "op": "configure",
-            "auth": bridge_token,
+            "auth": current_token or bridge_token,
             "ssid": ssid,
             "password": password,
             "bridge_url": bridge_url,
@@ -98,10 +140,14 @@ class BluetoothBridge:
         self._ble_devices: dict[str, Any] = {}
         self.last_address = self._load_last_address()
         self.device_status: dict[str, Any] = {}
+        self.device_connected = False
+        self.connection_state = "idle"
+        self.connection_detail = ""
         self.operation_state = "idle"
         self.operation_detail = "尚未扫描 Dotii"
         self.operation_log = ""
         self.updated_at_epoch = 0
+        self.permission_state = "unknown" if self.platform.name == "macos" else "not_applicable"
         self._add_dependency_path()
 
     def _add_dependency_path(self) -> None:
@@ -120,10 +166,16 @@ class BluetoothBridge:
 
     def _save_last_address(self, address: str) -> None:
         self.settings_path.parent.mkdir(parents=True, exist_ok=True)
-        self.settings_path.write_text(
+        temporary = self.settings_path.with_suffix(".tmp")
+        temporary.write_text(
             json.dumps({"address": address}, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
+        try:
+            temporary.chmod(0o600)
+        except OSError:
+            pass
+        temporary.replace(self.settings_path)
 
     def _bleak(self) -> tuple[Any, Any]:
         self._add_dependency_path()
@@ -145,15 +197,23 @@ class BluetoothBridge:
         if self.monitor is None or not self.monitor.is_alive():
             self.monitor = threading.Thread(target=self._monitor, name="dotii-ble-monitor", daemon=True)
             self.monitor.start()
+        if self.platform.name == "macos" and not self.last_address and self.dependency_ready():
+            if self._start_worker(self._scan, name="dotii-ble-startup-scan"):
+                with self.lock:
+                    self.operation_detail = "正在自动识别附近的 Dotii"
 
     def snapshot(self) -> dict[str, Any]:
         with self.lock:
             return {
                 "available": self.platform.bluetooth_available,
                 "dependency_ready": self.dependency_ready(),
+                "permission_state": self.permission_state,
                 "devices": [dict(item) for item in self.devices],
                 "last_address": self.last_address,
                 "device_status": dict(self.device_status),
+                "device_connected": self.device_connected,
+                "connection_state": self.connection_state,
+                "connection_detail": self.connection_detail,
                 "operation_state": self.operation_state,
                 "operation_detail": self.operation_detail,
                 "operation_log": self.operation_log,
@@ -178,7 +238,7 @@ class BluetoothBridge:
         if is_frozen():
             if self.dependency_ready():
                 return False
-            raise OSError("当前安装包缺少 Windows 蓝牙组件，请重新安装 Dotii 管理中心")
+            raise OSError("当前安装包缺少蓝牙组件，请重新安装 Dotii 管理中心")
         return self._start_worker(self._install, name="dotii-ble-installer")
 
     def _install(self) -> None:
@@ -221,7 +281,8 @@ class BluetoothBridge:
 
     async def _discover(self) -> list[dict[str, Any]]:
         _, scanner = self._bleak()
-        discovered = await scanner.discover(timeout=5.0, return_adv=True)
+        scan_timeout = 10.0 if self.platform.name == "macos" else 5.0
+        discovered = await scanner.discover(timeout=scan_timeout, return_adv=True)
         output: list[dict[str, Any]] = []
         native_devices: dict[str, Any] = {}
         pairs = discovered.values() if isinstance(discovered, dict) else ((item, None) for item in discovered)
@@ -241,23 +302,81 @@ class BluetoothBridge:
             self._ble_devices = native_devices
         return output
 
+    async def _discover_with_status(
+        self,
+    ) -> tuple[list[dict[str, Any]], str, dict[str, Any], Exception | None]:
+        """Discover and connect on one event loop for CoreBluetooth objects."""
+        devices = await self._discover()
+        known_addresses = {item["address"] for item in devices}
+        with self.lock:
+            remembered_address = self.last_address
+        selected_address = remembered_address if remembered_address in known_addresses else (
+            devices[0]["address"] if devices else ""
+        )
+        if not selected_address:
+            return devices, "", {}, None
+        try:
+            status = await self._read_status(selected_address)
+            return devices, selected_address, status, None
+        except Exception as error:  # Bleak exposes backend-specific failures.
+            return devices, selected_address, {}, error
+
     def _scan(self) -> None:
         try:
             with self.operation_lock:
-                devices = asyncio.run(self._discover())
+                devices, selected_address, status, connection_error = asyncio.run(
+                    self._discover_with_status()
+                )
             with self.lock:
+                if self.platform.name == "macos":
+                    # CoreBluetooth BLEDevice objects belong to the discovery
+                    # event loop. Persist only the stable UUID across workers.
+                    self._ble_devices = {}
                 self.devices = devices
+                self.device_status = status
+                self.device_connected = bool(status)
+                self.connection_state = "connected" if status else "idle"
+                self.connection_detail = ""
+                if selected_address and selected_address != self.last_address:
+                    self.last_address = selected_address
+            scan_permission_state = "allowed"
+            if connection_error is not None:
+                connection_state, connection_detail = _bluetooth_error(connection_error)
+                if connection_state in BLUETOOTH_AVAILABILITY_STATES:
+                    scan_permission_state = connection_state
+                with self.lock:
+                    self.connection_state = connection_state
+                    self.connection_detail = connection_detail
+            if selected_address:
+                self._save_last_address(selected_address)
+            with self.lock:
+                self.permission_state = scan_permission_state
                 self.operation_state = "success"
-                self.operation_detail = f"发现 {len(devices)} 台 Dotii" if devices else "未发现附近的 Dotii"
+                self.operation_detail = (
+                    f"发现 {len(devices)} 台 Dotii，已读取当前设备状态"
+                    if devices and self.device_connected
+                    else f"发现 {len(devices)} 台 Dotii；{self.connection_detail or '状态连接暂未完成'}"
+                    if devices
+                    else "未发现附近的 Dotii"
+                )
                 self.updated_at_epoch = int(time.time())
         except Exception as error:  # BLE backends expose platform-specific exceptions.
+            permission_state, detail = _bluetooth_error(error)
             with self.lock:
+                self.permission_state = permission_state
                 self.operation_state = "error"
-                self.operation_detail = f"蓝牙扫描失败：{str(error)[:160]}"
+                self.operation_detail = f"蓝牙扫描失败：{detail}"
                 self.updated_at_epoch = int(time.time())
 
     def start_configure(
-        self, *, address: Any, ssid: Any, password: Any, bridge_url: str, bridge_token: str
+        self,
+        *,
+        address: Any,
+        ssid: Any,
+        password: Any,
+        bridge_url: str,
+        bridge_token: str,
+        current_token: Any = "",
     ) -> bool:
         if not self.platform.bluetooth_available:
             raise ValueError("当前平台尚未支持 Dotii 蓝牙配网")
@@ -269,7 +388,11 @@ class BluetoothBridge:
         if address not in known and address != self.last_address:
             raise ValueError("请重新扫描并选择 Dotii")
         body = _configuration_payload(
-            ssid=ssid, password=password, bridge_url=bridge_url, bridge_token=bridge_token
+            ssid=ssid,
+            password=password,
+            bridge_url=bridge_url,
+            bridge_token=bridge_token,
+            current_token=current_token,
         )
         return self._start_worker(self._configure, address, body, name="dotii-ble-configure")
 
@@ -288,7 +411,13 @@ class BluetoothBridge:
             except (UnicodeDecodeError, json.JSONDecodeError):
                 pass
 
-        async with client_class(target, timeout=30.0, pair=True) as client:
+        # Windows requests pairing during connect. CoreBluetooth has no explicit
+        # pairing API and prompts when the encrypted characteristic is accessed.
+        async with client_class(
+            target,
+            timeout=45.0 if self.platform.name == "macos" else 30.0,
+            pair=self.platform.bluetooth_pair_on_connect,
+        ) as client:
             await client.start_notify(RESPONSE_UUID, notification)
             for packet in _configuration_packets(body):
                 await client.write_gatt_char(COMMAND_UUID, packet, response=True)
@@ -302,16 +431,8 @@ class BluetoothBridge:
     async def _configure_async(self, address: str, body: bytes) -> dict[str, Any]:
         client_class, _ = self._bleak()
         with self.lock:
-            target = self._ble_devices.get(address, address)
+            target = address if self.platform.name == "macos" else self._ble_devices.get(address, address)
 
-        # On Windows, pairing as part of the initial connection is materially
-        # more reliable than connecting first and invoking PairAsync later.
-        # A Dotii provisioning reset deliberately clears its bond, but Windows
-        # can retain the old pairing and GATT cache. In that state PairAsync
-        # reports "already paired" and enabling the encrypted response notify
-        # characteristic fails as Unreachable. Remove the stale Windows bond
-        # once, then create a fresh client so pairing and service discovery run
-        # again before any Wi-Fi credentials are written.
         try:
             return await self._configure_once(client_class, target, body)
         except Exception as error:
@@ -326,7 +447,9 @@ class BluetoothBridge:
             try:
                 await recovery_client.unpair()
             except Exception as recovery_error:
-                raise OSError(f"检测到失效的 Windows 蓝牙配对，但自动清除失败：{recovery_error}") from error
+                raise OSError(
+                    f"检测到失效的 Windows 蓝牙配对，但自动清除失败：{recovery_error}"
+                ) from error
             finally:
                 if getattr(recovery_client, "is_connected", False):
                     await recovery_client.disconnect()
@@ -343,13 +466,20 @@ class BluetoothBridge:
             self.last_address = address
             self._save_last_address(address)
             with self.lock:
+                self.permission_state = "allowed"
                 self.operation_state = "success"
                 self.operation_detail = "配置已保存，Dotii 正在重启并连接局域网"
+                self.device_connected = False
+                self.connection_state = "restarting"
+                self.connection_detail = "Dotii 正在重启"
                 self.updated_at_epoch = int(time.time())
         except Exception as error:
+            permission_state, detail = _bluetooth_error(error)
             with self.lock:
+                if permission_state in BLUETOOTH_AVAILABILITY_STATES:
+                    self.permission_state = permission_state
                 self.operation_state = "error"
-                self.operation_detail = f"蓝牙配置失败：{str(error)[:170]}"
+                self.operation_detail = f"蓝牙配置失败：{detail}"
                 self.updated_at_epoch = int(time.time())
 
     async def _read_status(self, address: str) -> dict[str, Any]:
@@ -362,16 +492,49 @@ class BluetoothBridge:
             return payload if isinstance(payload, dict) else {}
 
     def _monitor(self) -> None:
-        while not self.stop_event.wait(15):
+        first_run = True
+        while first_run or not self.stop_event.wait(15):
+            first_run = False
             if not self.last_address or not self.dependency_ready() or not self.operation_lock.acquire(False):
                 continue
             try:
                 status = asyncio.run(self._read_status(self.last_address))
                 with self.lock:
+                    self.permission_state = "allowed"
                     self.device_status = status
-            except Exception:
+                    self.device_connected = bool(status)
+                    self.connection_state = "connected" if status else "error"
+                    self.connection_detail = "" if status else "设备状态响应为空"
+                    if status and not any(
+                        item.get("address") == self.last_address for item in self.devices
+                    ):
+                        self.devices.append({
+                            "address": self.last_address,
+                            "name": str(status.get("name") or "Dotii")[:80],
+                            "rssi": None,
+                            "remembered": True,
+                        })
+            except Exception as error:
+                permission_state, detail = _bluetooth_error(error)
                 with self.lock:
-                    self.device_status = {}
+                    if permission_state in BLUETOOTH_AVAILABILITY_STATES:
+                        self.permission_state = permission_state
+                    self.device_connected = False
+                    if (
+                        self.connection_state != "stale_pairing"
+                        or permission_state in BLUETOOTH_AVAILABILITY_STATES
+                    ):
+                        self.connection_state = permission_state
+                        self.connection_detail = detail
+                    if not any(
+                        item.get("address") == self.last_address for item in self.devices
+                    ):
+                        self.devices.append({
+                            "address": self.last_address,
+                            "name": str(self.device_status.get("name") or "Dotii")[:80],
+                            "rssi": None,
+                            "remembered": True,
+                        })
             finally:
                 self.operation_lock.release()
 

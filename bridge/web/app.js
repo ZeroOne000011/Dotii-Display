@@ -699,7 +699,10 @@ function setBridgeState(bridge) {
   setText("bridge-state-label", bridgeOnline ? "管理中心在线" : "管理中心连接失败");
   setText("collector-detail", collectorState === "disabled" ? "Codex 模块已关闭" : collectorState === "online" ? "已连接" : collectorState === "error" ? "需要修复" : "正在连接");
   setText("bridge-uptime", formatDuration(Date.now() / 1000 - Number(bridge.started_at_epoch || 0)));
-  byId("auto-start").checked = Boolean(bridge.auto_start);
+  const autoStart = byId("auto-start");
+  autoStart.checked = Boolean(bridge.auto_start);
+  autoStart.disabled = bridge.startup_available === false;
+  autoStart.title = autoStart.disabled ? "请从正式安装的 Dotii 管理中心应用设置登录启动" : "";
   setText("device-url", bridge.device_url || "--");
   setText("bridge-token", bridge.token || "--");
   setText("local-url", bridge.local_url || "--");
@@ -720,8 +723,9 @@ function renderFirmware(firmware = {}) {
   const ports = Array.isArray(firmware.ports) ? firmware.ports : [];
   const dotiiPorts = ports.filter((port) => port.dotii);
   const badge = byId("firmware-badge");
-  badge.dataset.state = running ? "running" : success ? "ready" : ready ? "ready" : "error";
-  badge.textContent = running ? "烧录中" : success ? "已完成" : ready ? "固件就绪" : "需要处理";
+  const identified = dotiiPorts.length > 0;
+  badge.dataset.state = running ? "running" : success || identified || ready ? "ready" : "error";
+  badge.textContent = running ? "烧录中" : success ? "已完成" : identified ? "已识别" : ready ? "固件就绪" : "需要处理";
   setText("firmware-version", packageInfo.version ? `v${packageInfo.version}` : "--");
   setText("firmware-size", packageInfo.app_size ? formatBytes(packageInfo.app_size) : "--");
   setText("firmware-hash", packageInfo.app_sha256 ? packageInfo.app_sha256.slice(0, 20) : "--");
@@ -752,20 +756,29 @@ function renderFirmware(firmware = {}) {
   const progress = Math.max(0, Math.min(100, Number(firmware.progress) || 0));
   byId("firmware-progress").firstElementChild.style.width = `${progress}%`;
   byId("firmware-progress").closest(".firmware-panel").dataset.running = String(running);
-  setText("firmware-detail", firmware.operation_detail || (ready ? "请选择 Dotii" : packageInfo.error || "烧录组件不可用"));
+  const firmwareDetail = firmware.operation_state === "idle"
+    ? identified
+      ? "已识别 Dotii ESP32-S3，可执行固件烧录"
+      : ready ? "请通过 USB 连接 Dotii" : packageInfo.error || "烧录组件不可用"
+    : firmware.operation_detail;
+  setText("firmware-detail", firmwareDetail);
   byId("firmware-refresh").disabled = running;
   byId("firmware-flash").disabled = running || !ready || !input.value || !dotiiPorts.some((port) => port.port === input.value);
   byId("firmware-flash").textContent = running ? `正在烧录 ${progress}%` : "烧录 Dotii";
 }
 
 function renderBluetooth(bluetooth = {}) {
+  const available = bluetooth.available !== false;
   const ready = Boolean(bluetooth.dependency_ready);
   const running = bluetooth.operation_state === "running";
-  const success = bluetooth.operation_state === "success";
   const devices = Array.isArray(bluetooth.devices) ? bluetooth.devices : [];
+  const status = bluetooth.device_status || {};
+  const connected = bluetooth.device_connected === true;
+  const recognized = devices.length > 0 || Boolean(bluetooth.last_address);
+  const blocked = ["denied", "bluetooth_off", "unavailable"].includes(bluetooth.permission_state);
   const badge = byId("bluetooth-badge");
-  badge.dataset.state = running ? "running" : ready ? "ready" : "error";
-  badge.textContent = running ? "处理中" : ready ? (success ? "已连接" : "蓝牙就绪") : "需要处理";
+  badge.dataset.state = running ? "running" : blocked || !available || !ready ? "error" : "ready";
+  badge.textContent = running ? "处理中" : blocked ? "需要处理" : connected ? "已连接" : recognized ? "已识别" : ready ? "蓝牙就绪" : "需要处理";
 
   const input = byId("bluetooth-device");
   const control = input.closest("[data-ui-select]");
@@ -780,7 +793,8 @@ function renderBluetooth(bluetooth = {}) {
       option.type = "button";
       option.setAttribute("role", "option");
       option.dataset.value = device.address;
-      option.textContent = `${device.name || "Dotii"} · ${device.rssi} dBm`;
+      const signal = Number.isFinite(Number(device.rssi)) ? `${device.rssi} dBm` : "已登记";
+      option.textContent = `${device.name || "Dotii"} · ${signal}`;
       menu.append(option);
     });
     const selected = devices.some((device) => device.address === previous) ? previous : devices[0]?.address || "";
@@ -789,18 +803,34 @@ function renderBluetooth(bluetooth = {}) {
     else setText("bluetooth-device-value", devices.length ? "请选择 Dotii" : "未发现附近设备");
   }
   control.querySelector(".ui-select-trigger").disabled = running || !devices.length;
-  const status = bluetooth.device_status || {};
   const managementStatus = typeof status.bridge === "string"
     ? status.bridge.replace("桥接", "管理中心")
     : "管理中心状态未知";
+  const operationDetail = bluetooth.operation_state === "idle" ? "" : bluetooth.operation_detail;
   const liveDetail = status.name
-    ? `${status.name} · ${status.wifi ? "Wi-Fi 已连接" : "Wi-Fi 未连接"} · ${managementStatus}`
-    : bluetooth.operation_detail;
-  setText("bluetooth-detail", liveDetail || (ready ? "请扫描附近的 Dotii" : "需要安装 Windows 蓝牙连接组件"));
-  byId("bluetooth-install").hidden = ready;
+    ? `${status.name} · ${connected ? "蓝牙已连接" : "已识别，蓝牙暂未连接"} · ${status.wifi ? "Wi-Fi 已连接" : "Wi-Fi 未连接"} · ${managementStatus}`
+    : operationDetail;
+  const permissionDetails = {
+    unknown: "首次扫描时 macOS 会请求蓝牙权限",
+    denied: "请在系统设置 > 隐私与安全性 > 蓝牙中允许 Dotii 管理中心",
+    bluetooth_off: "蓝牙已关闭，请先在系统设置中打开蓝牙",
+    unavailable: "当前 Mac 没有可用的低功耗蓝牙功能",
+    timeout: "等待蓝牙连接或系统配对确认超时，请确认 Dotii 在附近后重试",
+    stale_pairing: "Dotii 已重置配对，但这台 Mac 仍保留旧记录；请在系统设置 > 蓝牙中忽略 Dotii，然后重新扫描",
+    not_found: "暂时无法重新连接已识别的 Dotii，请点击“扫描 Dotii”重试",
+  };
+  const fallbackDetail = !available
+    ? "当前平台尚未支持 Dotii 蓝牙配网"
+    : !ready
+      ? "当前安装缺少蓝牙连接组件"
+      : permissionDetails[bluetooth.permission_state] || "请扫描附近的 Dotii";
+  const connectionDetail = !connected && bluetooth.connection_detail
+    ? bluetooth.connection_detail : "";
+  setText("bluetooth-detail", connectionDetail || liveDetail || fallbackDetail);
+  byId("bluetooth-install").hidden = ready || !available;
   byId("bluetooth-install").disabled = running;
-  byId("bluetooth-scan").disabled = running || !ready;
-  byId("bluetooth-configure").disabled = running || !ready || !input.value || !byId("bluetooth-ssid").value.trim();
+  byId("bluetooth-scan").disabled = running || !available || !ready;
+  byId("bluetooth-configure").disabled = running || !available || !ready || !input.value || !byId("bluetooth-ssid").value.trim();
   byId("bluetooth-configure").textContent = running ? "正在连接…" : "保存并连接";
 }
 
@@ -1383,7 +1413,7 @@ async function bluetoothAction(path, payload = {}) {
 async function installBluetooth() {
   try {
     await bluetoothAction("/api/v1/admin/bluetooth/install");
-    showToast("正在准备 Windows 蓝牙连接组件");
+    showToast("正在准备蓝牙连接组件");
     await refreshOverview();
   } catch (error) { showToast(error.message || "蓝牙组件安装失败"); }
 }
@@ -1402,7 +1432,9 @@ async function configureBluetooth() {
   const password = byId("bluetooth-password").value;
   if (!address || !ssid) return showToast("请选择 Dotii 并填写 Wi-Fi 名称");
   try {
-    await bluetoothAction("/api/v1/admin/bluetooth/configure", { address, ssid, password });
+    await bluetoothAction("/api/v1/admin/bluetooth/configure", {
+      address, ssid, password,
+    });
     byId("bluetooth-password").value = "";
     showToast("正在通过蓝牙配置 Dotii");
     await refreshOverview();

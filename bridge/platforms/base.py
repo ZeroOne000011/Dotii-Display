@@ -22,6 +22,7 @@ class PlatformAdapter(Protocol):
     name: str
     startup_available: bool
     bluetooth_available: bool
+    bluetooth_pair_on_connect: bool
     serial_flash_available: bool
 
     def runtime_folder(self) -> Path: ...

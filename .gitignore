@@ -12,3 +12,4 @@ __pycache__/
 release/
 tools/
 .vscode/
+.DS_Store

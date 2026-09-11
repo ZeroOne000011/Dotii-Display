@@ -4,6 +4,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 BRIDGE = Path(__file__).resolve().parents[1]
@@ -20,6 +21,7 @@ from codex_bridge import (  # noqa: E402
     validate_module_config,
     validate_snapshot,
 )
+from platforms.windows import WindowsPlatformAdapter  # noqa: E402
 
 
 class CodexUiConfigTests(unittest.TestCase):
@@ -247,16 +249,18 @@ class CodexUiConfigTests(unittest.TestCase):
             app_script.parent.mkdir()
             app_script.touch()
 
-            self.assertEqual(
-                startup_command(pythonw, app_script),
-                f'"{pythonw.resolve()}" -B "{app_script.resolve()}" --startup',
-            )
+            with mock.patch("codex_bridge.current_platform", return_value=WindowsPlatformAdapter()):
+                self.assertEqual(
+                    startup_command(pythonw, app_script),
+                    f'"{pythonw.resolve()}" -B "{app_script.resolve()}" --startup',
+                )
 
     def test_packaged_startup_targets_management_center_not_bridge(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             management_center = Path(temporary) / "DotiiManagementCenter.exe"
             management_center.touch()
-            command = packaged_startup_command(management_center)
+            with mock.patch("codex_bridge.current_platform", return_value=WindowsPlatformAdapter()):
+                command = packaged_startup_command(management_center)
             self.assertEqual(command, f'"{management_center.resolve()}" --startup')
             self.assertNotIn("DotiiBridge.exe", command)
 

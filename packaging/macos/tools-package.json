@@ -1,0 +1,8 @@
+{
+  "name": "dotii-macos-private-tools",
+  "private": true,
+  "version": "1.1.1",
+  "dependencies": {
+    "@openai/codex": "0.151.0"
+  }
+}

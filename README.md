@@ -1,10 +1,10 @@
 # Dotii 桌面交互屏
 
-Dotii 是一套由 ESP32-S3 圆形 AMOLED 桌面屏与 Windows 端“Dotii 管理中心”组成的开源状态显示系统。它可以显示 Codex 用量与任务状态、Bambu Lab 打印进度、自定义内容，并通过 Dotii 表情提供轻量互动。当前正式版本为 **1.1.1**。
+Dotii 是一套由 ESP32-S3 圆形 AMOLED 桌面屏与 Windows/macOS 端“Dotii 管理中心”组成的开源状态显示系统。它可以显示 Codex 用量与任务状态、Bambu Lab 打印进度、自定义内容，并通过 Dotii 表情提供轻量互动。当前正式版本为 **1.1.1**；macOS 版以未公证预览版形式提供。
 
 ![Dotii 桌面交互屏产品渲染图](assets/dotii-product-render.png)
 
-[下载 Windows 便携包](https://github.com/ZeroOne000011/Dotii-Display/releases/tag/v1.1.1) · [MakerWorld 模型与打印文件](https://makerworld.com.cn/zh/models/2918764-dotii-zhuo-mian-jiao-hu-ping#profileId-3421401) · [查看开发指南](开发指南.md)
+[下载 Windows 便携包](https://github.com/ZeroOne000011/Dotii-Display/releases/tag/v1.1.1) · [macOS 预览版说明](macOS预览版说明.md) · [MakerWorld 模型与打印文件](https://makerworld.com.cn/zh/models/2918764-dotii-zhuo-mian-jiao-hu-ping#profileId-3421401) · [查看开发指南](开发指南.md)
 
 ## 1.1.1 更新内容
 
@@ -12,7 +12,11 @@ Dotii 是一套由 ESP32-S3 圆形 AMOLED 桌面屏与 Windows 端“Dotii 管�
 - 管理中心补充换电脑后的重置与重新配网说明。
 - 修复 Dotii 重置后 Windows 遗留旧蓝牙配对导致的 `Unreachable` 配置失败。
 
-## 便携包快速上手
+## macOS 预览版
+
+macOS 预览版首期支持 Apple Silicon arm64 和 macOS 13 及以上。它使用 ad-hoc 本地签名，未经 Developer ID 身份签名和苹果公证，因此首次启动会出现 Gatekeeper 提示。请阅读 [macOS 预览版说明](macOS预览版说明.md)，按文档校验 SHA-256、安装并授予蓝牙与本地网络权限。不需要安装 Python、Node.js、Codex CLI、FFmpeg 或 ESP-IDF。
+
+## Windows 便携包快速上手
 
 ### 使用前准备
 
@@ -106,7 +110,7 @@ Dotii 是一套由 ESP32-S3 圆形 AMOLED 桌面屏与 Windows 端“Dotii 管�
 
 ### 数据与安全
 
-- 管理网页只监听本机；Dotii 读取数据时需要设备访问令牌。
+- 管理网页和管理 API 只允许本机访问；Dotii 读取数据时需要设备访问令牌。
 - Wi-Fi 密码、Bambu 访问码、设备令牌和运行配置保存在本机用户目录，不应上传到公开仓库。
 - Bambu 数据通过局域网获取。暂停、继续和停止只会在打印机状态允许时开放，并需要用户明确操作。
 - 常规一键烧录不会擦除 NVS。请勿对未知设备、串口或固件执行烧录。
@@ -114,19 +118,19 @@ Dotii 是一套由 ESP32-S3 圆形 AMOLED 桌面屏与 Windows 端“Dotii 管�
 
 ## 开发与二次开发
 
-本仓库包含 Dotii 固件、Windows 管理中心、管理网页、测试和打包配置。完整的架构、协议、模块扩展、圆屏交互、构建、测试及发布规范统一记录在 [开发指南.md](开发指南.md)；开始修改前请先阅读该文档。
+本仓库包含 Dotii 固件、Windows/macOS 管理中心、管理网页、测试和打包配置。完整的架构、协议、模块扩展、圆屏交互、构建、测试及发布规范统一记录在 [开发指南.md](开发指南.md)；开始修改前请先阅读该文档。
 
 ### 技术组成
 
 - **设备端**：ESP32-S3、ESP-IDF 6.0.2、LVGL、466 × 466 CO5300 AMOLED、CST9217 触摸和 AXP2101 电源管理。
 - **电脑端**：Python 3.11+ 后台与托盘程序、本机 HTML/CSS/JavaScript 管理页面。
-- **通信**：带设备令牌的局域网 HTTP、Windows BLE 配网、Bambu LAN MQTT/TLS，以及 Codex App Server 的公开结构化接口。
+- **通信**：带设备令牌的局域网 HTTP、Windows BLE/macOS CoreBluetooth 配网、Bambu LAN MQTT/TLS，以及 Codex App Server 的公开结构化接口。
 
 ```text
 Codex App Server ─┐
                   ├─> Dotii 管理中心 ── HTTP/schema v1 ──> Dotii 固件
 Bambu LAN MQTT ───┤          │
-Bambu 相机链路 ───┘          └─ Windows BLE ──> 配网与设备状态
+Bambu 相机链路 ───┘          └─ 平台 BLE ──> 配网与设备状态
 ```
 
 ### 目录结构
@@ -138,7 +142,8 @@ State-Display/
 ├─ managed_components/   ESP-IDF 锁定依赖的本地副本
 ├─ bridge/               管理中心后台、托盘、网页、平台适配层和回归测试
 ├─ firmware/             源码入口与发布程序共用的最小烧录固件包
-├─ packaging/            Windows EXE 与安装器构建配置
+├─ packaging/            Windows/macOS 发布构建配置
+├─ macos/               macOS AppKit 菜单栏宿主与 Xcode 工程
 ├─ assets/               README 使用的产品图片
 ├─ README.md             用户入口与开发导航
 └─ 开发指南.md           架构、协议、构建、测试和扩展规范

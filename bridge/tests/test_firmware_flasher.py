@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 BRIDGE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BRIDGE))
@@ -14,11 +15,35 @@ from firmware_flasher import (  # noqa: E402
     _firmware_root,
     _parse_ports,
     _project_version,
+    _public_flash_log_line,
     _stub_data_ready,
 )
+from platforms.macos import MacOSPlatformAdapter  # noqa: E402
+
+
+class FakeMacOSPlatform(MacOSPlatformAdapter):
+    def __init__(self, ports: list[dict[str, object]], python_candidates: list[Path]) -> None:
+        self.ports = ports
+        self.python_candidates = python_candidates
+
+    def esptool_python_candidates(self) -> list[Path]:
+        return self.python_candidates
+
+    def scan_serial_ports(self, run):
+        return [dict(item) for item in self.ports]
 
 
 class FirmwareFlasherTests(unittest.TestCase):
+    @staticmethod
+    def _firmware_package(root: Path) -> None:
+        firmware = root / "firmware"
+        firmware.mkdir()
+        (firmware / "flasher_args.json").write_text(
+            json.dumps({"flash_files": {"0x10000": "state_display.bin"}}),
+            encoding="utf-8",
+        )
+        (firmware / "state_display.bin").write_bytes(b"firmware")
+
     def test_dotii_usb_port_is_prioritized(self) -> None:
         payload = json.dumps([
             {"DeviceID": "COM8", "Name": "Other", "PNPDeviceID": "USB\\VID_1234&PID_5678"},
@@ -28,6 +53,17 @@ class FirmwareFlasherTests(unittest.TestCase):
         self.assertEqual(ports[0]["port"], "COM17")
         self.assertTrue(ports[0]["dotii"])
         self.assertFalse(ports[1]["dotii"])
+
+    def test_user_facing_flash_log_hides_macos_paths_and_serial(self) -> None:
+        root = Path.home() / "Workspace" / "firmware"
+        port = "/dev/cu.usbmodem2101"
+        line = f"Writing {root}/state_display.bin through {port}"
+        public = _public_flash_log_line(line, root, port)
+
+        self.assertNotIn(str(Path.home()), public)
+        self.assertNotIn(port, public)
+        self.assertIn("<firmware>", public)
+        self.assertIn("<Dotii serial>", public)
 
     def test_invalid_port_names_are_ignored(self) -> None:
         payload = json.dumps({"DeviceID": "LPT1", "Name": "Printer", "PNPDeviceID": ""})
@@ -79,6 +115,44 @@ class FirmwareFlasherTests(unittest.TestCase):
             stub.parent.mkdir(parents=True)
             stub.write_text("{}", encoding="ascii")
             self.assertTrue(_stub_data_ready(root))
+
+    def test_macos_flash_rejects_device_removed_after_selection(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            self._firmware_package(root)
+            adapter = FakeMacOSPlatform([], [Path(sys.executable)])
+            result = mock.Mock(returncode=0, stdout="")
+            flasher = FirmwareFlasher(root, root / "runtime", run=mock.Mock(return_value=result), platform_adapter=adapter)
+
+            with self.assertRaisesRegex(ValueError, "当前不可用"):
+                flasher.start_flash("/dev/cu.usbmodem2101")
+
+    def test_macos_flash_rejects_non_dotii_and_missing_esptool(self) -> None:
+        port = {"port": "/dev/cu.usbserial-other", "name": "Other", "pnp_id": "", "dotii": False}
+        dotii = {"port": "/dev/cu.usbmodem2101", "name": "Dotii", "pnp_id": "", "dotii": True}
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            self._firmware_package(root)
+            missing_tool = FakeMacOSPlatform([port, dotii], [])
+            flasher = FirmwareFlasher(root, root / "runtime", platform_adapter=missing_tool)
+
+            with self.assertRaisesRegex(ValueError, "不是已识别"):
+                flasher.start_flash(port["port"])
+            with self.assertRaisesRegex(ValueError, "未找到 esptool"):
+                flasher.start_flash(dotii["port"])
+
+    def test_macos_duplicate_flash_is_not_started(self) -> None:
+        dotii = {"port": "/dev/cu.usbmodem2101", "name": "Dotii", "pnp_id": "", "dotii": True}
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            self._firmware_package(root)
+            adapter = FakeMacOSPlatform([dotii], [Path(sys.executable)])
+            result = mock.Mock(returncode=0, stdout="")
+            flasher = FirmwareFlasher(root, root / "runtime", run=mock.Mock(return_value=result), platform_adapter=adapter)
+            flasher.worker = mock.Mock()
+            flasher.worker.is_alive.return_value = True
+
+            self.assertFalse(flasher.start_flash(dotii["port"]))
 
 
 if __name__ == "__main__":

@@ -34,6 +34,16 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest().upper()
 
 
+def _public_flash_log_line(line: str, build_root: Path, port: str) -> str:
+    """Remove local paths and serial identifiers from user-facing esptool output."""
+    public = line.replace(str(build_root), "<firmware>")
+    if port:
+        public = public.replace(port, "<Dotii serial>")
+    public = public.replace(str(Path.home()), "<home>")
+    public = re.sub(r"[A-Za-z]:\\[^\s]+", "<firmware>", public)
+    return public[:300]
+
+
 def _project_version(project_root: Path) -> str:
     """Read the firmware fallback version from the single CMake source of truth."""
     try:
@@ -281,9 +291,8 @@ class FirmwareFlasher:
                 line = raw_line.strip()
                 if not line:
                     continue
-                # Paths and command-line secrets are never included in the user-facing log.
-                public_line = re.sub(r"[A-Za-z]:\\[^\s]+", "<firmware>", line)
-                lines.append(public_line[:300])
+                public_line = _public_flash_log_line(line, self.build_root, port)
+                lines.append(public_line)
                 lower = line.lower()
                 if "connecting" in lower:
                     self._set_progress(8, "正在连接 Dotii", lines)

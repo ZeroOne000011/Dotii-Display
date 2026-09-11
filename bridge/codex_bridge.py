@@ -178,7 +178,9 @@ CODEX_UI_OPTIONS = {"classic", "dual_limit"}
 SCREEN_OFF_PAGE_OPTIONS = {"none", "custom", "dotii"}
 CUSTOM_COLOR_PATTERN = re.compile(r"^#[0-9A-Fa-f]{6}$")
 WEB_ROOT = resource_path("web")
-MANAGEMENT_CENTER_EXECUTABLE = "DotiiManagementCenter.exe"
+MANAGEMENT_CENTER_EXECUTABLE = (
+    "DotiiManagementCenter.exe" if os.name == "nt" else "DotiiManagementCenter"
+)
 CODEX_CLI_PACKAGE = os.environ.get("STATE_DISPLAY_CODEX_PACKAGE", "@openai/codex@0.151.0")
 CODEX_CLI_VERSION = "0.151.0"
 
@@ -214,6 +216,19 @@ def startup_enabled() -> bool:
 def set_startup(enabled: bool) -> bool:
     command = current_startup_command() if enabled else ""
     return current_platform().set_startup(enabled, command)
+
+
+def watch_parent(parent_pid: int, server: ThreadingHTTPServer, stop: threading.Event) -> None:
+    """Stop a packaged backend if its native host disappears unexpectedly."""
+    while not stop.wait(2.0):
+        try:
+            os.kill(parent_pid, 0)
+        except ProcessLookupError:
+            logging.warning("macOS 菜单栏宿主已退出，正在停止后台服务")
+            server.shutdown()
+            return
+        except PermissionError:
+            continue
 
 
 def load_or_create_token(path: Path) -> str:
@@ -1137,6 +1152,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 "token": self.bridge.token,
                 "port": self.bridge.server_port,
                 "auto_start": startup_enabled(),
+                "startup_available": current_platform().startup_available,
                 **runtime,
             },
             "snapshot": snapshot,
@@ -1157,7 +1173,11 @@ class BridgeHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         path = urlparse(self.path).path
         if path == "/health":
-            self._send_json(HTTPStatus.OK, {"ok": True, "schema_version": SCHEMA_VERSION})
+            self._send_json(HTTPStatus.OK, {
+                "ok": True,
+                "schema_version": SCHEMA_VERSION,
+                "parent_pid": self.bridge.host_parent_pid,
+            })
         elif path == "/api/v1/snapshot":
             if not self._authorized():
                 self._send_json(HTTPStatus.UNAUTHORIZED, {"error": "invalid bridge token"})
@@ -1264,6 +1284,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
                     address=payload.get("address"), ssid=payload.get("ssid"),
                     password=payload.get("password"), bridge_url=bridge_url,
                     bridge_token=self.bridge.token,
+                    current_token=payload.get("current_token", ""),
                 )
                 status = HTTPStatus.ACCEPTED if started else HTTPStatus.CONFLICT
                 self._send_json(status, {"ok": started})
@@ -1478,6 +1499,7 @@ class BridgeServer(ThreadingHTTPServer):
         runtime_folder: Path,
         application_folder: Path,
         codex_command: str | None,
+        host_parent_pid: int = 0,
     ) -> None:
         super().__init__(address, BridgeHandler)
         self.store = store
@@ -1497,6 +1519,7 @@ class BridgeServer(ThreadingHTTPServer):
         self.runtime_folder = runtime_folder
         self.application_folder = application_folder
         self.codex_command = codex_command
+        self.host_parent_pid = host_parent_pid
 
     def snapshot(self) -> dict[str, Any]:
         snapshot = self.store.read()
@@ -1523,6 +1546,7 @@ def main() -> None:
     parser.add_argument("--app-server", action="store_true", help="read account and task state through Codex app-server")
     parser.add_argument("--codex-command", help="path to a standalone Codex CLI executable or codex.js")
     parser.add_argument("--app-server-interval", type=float, default=2.0)
+    parser.add_argument("--parent-pid", type=int, default=0, help=argparse.SUPPRESS)
     arguments = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     # Preserve the user's enabled/disabled choice while repairing stale paths
@@ -1561,7 +1585,15 @@ def main() -> None:
     firmware = FirmwareFlasher(project_root(), writable_root)
     server = BridgeServer((arguments.host, arguments.port), store, token, runtime, collector_restart,
                           custom, modules, dotii, display, codex_check, assets, bambu_config, bambu,
-                          bluetooth, firmware, writable_root, application_root(), arguments.codex_command)
+                          bluetooth, firmware, writable_root, application_root(), arguments.codex_command,
+                          arguments.parent_pid)
+    if arguments.parent_pid > 1:
+        threading.Thread(
+            target=watch_parent,
+            args=(arguments.parent_pid, server, stop),
+            name="dotii-parent-watchdog",
+            daemon=True,
+        ).start()
     if arguments.app_server:
         threading.Thread(
             target=run_collector,

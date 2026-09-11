@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleDevelopmentRegion</key>
+  <string>zh_CN</string>
+  <key>CFBundleDisplayName</key>
+  <string>Dotii 管理中心</string>
+  <key>CFBundleExecutable</key>
+  <string>DotiiManagementCenter</string>
+  <key>CFBundleIdentifier</key>
+  <string>com.dotii.management-center</string>
+  <key>CFBundleIconName</key>
+  <string>AppIcon</string>
+  <key>CFBundleInfoDictionaryVersion</key>
+  <string>6.0</string>
+  <key>CFBundleName</key>
+  <string>Dotii 管理中心</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleShortVersionString</key>
+  <string>1.1.1</string>
+  <key>CFBundleVersion</key>
+  <string>1</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>13.0</string>
+  <key>LSUIElement</key>
+  <true/>
+  <key>LSMultipleInstancesProhibited</key>
+  <true/>
+  <key>NSBluetoothAlwaysUsageDescription</key>
+  <string>用于发现 Dotii，并向设备安全写入 Wi-Fi 与管理中心连接配置。</string>
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>用于连接局域网中的 Dotii 与 Bambu Lab 打印机，并向 Dotii 提供管理中心数据。</string>
+</dict>
+</plist>

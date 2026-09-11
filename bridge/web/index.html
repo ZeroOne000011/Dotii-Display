@@ -475,12 +475,12 @@
           <section class="settings-group bridge-settings-group" aria-labelledby="bridge-settings-heading">
             <div class="settings-group-heading">
               <h3 id="bridge-settings-heading">Dotii 管理中心</h3>
-              <p>控制 Windows 启动方式并查看本机运行状态。</p>
+              <p>控制登录启动方式并查看本机运行状态。</p>
             </div>
             <article class="settings-panel">
               <h3>应用设置</h3>
               <label class="setting-row">
-                <span><strong>登录 Windows 后自动启动</strong><small>让 Dotii 始终保持更新</small></span>
+                <span><strong>登录系统后自动启动</strong><small>让 Dotii 始终保持更新</small></span>
                 <input id="auto-start" type="checkbox">
                 <span class="switch-track" aria-hidden="true"></span>
               </label>
@@ -622,14 +622,14 @@
                 <label><span>Wi-Fi 密码</span><input id="bluetooth-password" type="password" maxlength="64" autocomplete="new-password" placeholder="只发送给所选 Dotii"></label>
               </div>
               <p class="network-note"><strong>保持连接稳定</strong><span>Dotii 通过电脑的局域网地址连接 Dotii 管理中心，建议在路由器中为这台电脑设置 DHCP 地址保留或将 IP 与 MAC 地址绑定。</span></p>
-              <div class="dependency-status" id="bluetooth-detail">正在检查 Windows 蓝牙组件</div>
+              <div class="dependency-status" id="bluetooth-detail">正在检查蓝牙组件</div>
               <div class="dependency-actions">
                 <button class="quiet-button" id="bluetooth-install" type="button">检查并修复</button>
                 <button class="quiet-button" id="bluetooth-scan" type="button">扫描 Dotii</button>
                 <button class="primary-button" id="bluetooth-configure" type="button" disabled>保存并连接</button>
               </div>
-              <p class="bambu-help">Wi-Fi 密码不会保存在电脑端；配置成功后 Dotii 会重启并继续使用局域网高速数据链路。</p>
-              <p class="bambu-help bluetooth-recovery-help"><strong>更换电脑：</strong>如果已配网的 Dotii 无法由新电脑重新配置，请长按 Dotii 右侧按钮进入设置，并在设置页面长按“重置配网”，设备会清除 Wi-Fi、管理中心绑定和蓝牙配对后重启。</p>
+              <p class="bambu-help">Wi-Fi 密码只用于本次加密蓝牙配置，不会保存在电脑端。配置成功后 Dotii 会重启并继续使用局域网高速数据链路。</p>
+              <p class="bambu-help bluetooth-recovery-help"><strong>更换电脑：</strong>请长按 Dotii 右侧按钮进入设置，并在设置页面长按“重置配网”。设备会清除 Wi-Fi、管理中心绑定和蓝牙配对后重启，然后即可在这台电脑上重新配网。</p>
             </article>
 
             <article class="dependency-panel firmware-panel">
