@@ -158,6 +158,8 @@ static lv_obj_t *s_dotii_accent_right;
 static lv_obj_t *s_dotii_accent_center;
 static lv_obj_t *s_codex_quick;
 static lv_obj_t *s_bambu_quick;
+static lv_obj_t *s_zai_quick;
+static lv_obj_t *s_claudecode_quick;
 static lv_obj_t *s_custom_quick;
 static lv_obj_t *s_dotii_quick;
 static lv_obj_t *s_page_dots[PAGE_COUNT][PAGE_COUNT];
@@ -2081,11 +2083,13 @@ static void build_dotii(void)
 }
 
 static lv_obj_t *make_quick_button(lv_obj_t *parent,
-                                   const lv_image_dsc_t *icon_source, uint32_t accent)
+                                   const lv_image_dsc_t *icon_source, uint32_t accent,
+                                   const char *text_mark)
 {
+    /* 控制中心容纳 6 个按钮：51px + 间距 6 恰好铺满 340px 安全区。 */
     lv_obj_t *button = lv_button_create(parent);
-    lv_obj_set_size(button, 78, 78);
-    lv_obj_set_style_radius(button, 20, 0);
+    lv_obj_set_size(button, 51, 51);
+    lv_obj_set_style_radius(button, 14, 0);
     lv_obj_set_style_bg_color(button, color(COLOR_SURFACE), 0);
     lv_obj_set_style_bg_opa(button, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(button, 1, 0);
@@ -2097,6 +2101,9 @@ static lv_obj_t *make_quick_button(lv_obj_t *parent,
         lv_obj_set_style_image_recolor(icon, color(accent), 0);
         lv_obj_set_style_image_recolor_opa(icon, LV_OPA_COVER, 0);
         lv_obj_center(icon);
+    } else if (text_mark != NULL) {
+        lv_obj_t *mark = make_label(button, text_mark, &lv_font_montserrat_20, accent);
+        lv_obj_center(mark);
     } else {
         lv_obj_t *icon = lv_obj_create(button);
         lv_obj_remove_style_all(icon);
@@ -2141,21 +2148,25 @@ static void build_control(void)
 
     lv_obj_t *row = lv_obj_create(safe);
     lv_obj_remove_style_all(row);
-    lv_obj_set_size(row, 340, 82);
-    lv_obj_set_pos(row, 9, 156);
+    lv_obj_set_size(row, 340, 58);
+    lv_obj_set_pos(row, 9, 160);
     lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(row, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_column(row, 9, 0);
-    s_codex_quick = make_quick_button(row, &ui_icon_openai_36, COLOR_BLUE);
-    s_bambu_quick = make_quick_button(row, &ui_icon_bambu_36, COLOR_BAMBU);
-    s_custom_quick = make_quick_button(row, NULL, COLOR_WARNING);
-    s_dotii_quick = make_quick_button(row, NULL, COLOR_CYAN);
+    lv_obj_set_style_pad_column(row, 6, 0);
+    s_codex_quick = make_quick_button(row, &ui_icon_openai_36, COLOR_BLUE, NULL);
+    s_bambu_quick = make_quick_button(row, &ui_icon_bambu_36, COLOR_BAMBU, NULL);
+    s_zai_quick = make_quick_button(row, NULL, COLOR_VIOLET, "Z");
+    s_claudecode_quick = make_quick_button(row, NULL, COLOR_ORANGE, ">_");
+    s_custom_quick = make_quick_button(row, NULL, COLOR_WARNING, NULL);
+    s_dotii_quick = make_quick_button(row, NULL, COLOR_CYAN, NULL);
     lv_obj_clean(s_dotii_quick);
-    make_dotii_part(s_dotii_quick, 12, 20, -12, -2, COLOR_CYAN);
-    make_dotii_part(s_dotii_quick, 12, 20, 12, -2, COLOR_CYAN);
+    make_dotii_part(s_dotii_quick, 8, 14, -8, -1, COLOR_CYAN);
+    make_dotii_part(s_dotii_quick, 8, 14, 8, -1, COLOR_CYAN);
     lv_obj_add_flag(s_custom_quick, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_event_cb(s_codex_quick, quick_clicked, LV_EVENT_CLICKED, s_main);
     lv_obj_add_event_cb(s_bambu_quick, quick_clicked, LV_EVENT_CLICKED, s_bambu_main);
+    lv_obj_add_event_cb(s_zai_quick, quick_clicked, LV_EVENT_CLICKED, s_zai_main);
+    lv_obj_add_event_cb(s_claudecode_quick, quick_clicked, LV_EVENT_CLICKED, s_claudecode_main);
     lv_obj_add_event_cb(s_custom_quick, quick_clicked, LV_EVENT_CLICKED, s_custom);
     lv_obj_add_event_cb(s_dotii_quick, quick_clicked, LV_EVENT_CLICKED, s_dotii);
 
@@ -2720,6 +2731,10 @@ static void update_snapshot(const codex_snapshot_t *snapshot)
     else lv_obj_add_flag(s_codex_quick, LV_OBJ_FLAG_HIDDEN);
     if (snapshot->bambu_enabled) lv_obj_remove_flag(s_bambu_quick, LV_OBJ_FLAG_HIDDEN);
     else lv_obj_add_flag(s_bambu_quick, LV_OBJ_FLAG_HIDDEN);
+    if (snapshot->zai_enabled) lv_obj_remove_flag(s_zai_quick, LV_OBJ_FLAG_HIDDEN);
+    else lv_obj_add_flag(s_zai_quick, LV_OBJ_FLAG_HIDDEN);
+    if (snapshot->claudecode_enabled) lv_obj_remove_flag(s_claudecode_quick, LV_OBJ_FLAG_HIDDEN);
+    else lv_obj_add_flag(s_claudecode_quick, LV_OBJ_FLAG_HIDDEN);
     if (snapshot->custom_enabled) lv_obj_remove_flag(s_custom_quick, LV_OBJ_FLAG_HIDDEN);
     else lv_obj_add_flag(s_custom_quick, LV_OBJ_FLAG_HIDDEN);
     if (snapshot->dotii_enabled) lv_obj_remove_flag(s_dotii_quick, LV_OBJ_FLAG_HIDDEN);
