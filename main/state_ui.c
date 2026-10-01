@@ -136,6 +136,8 @@ static lv_obj_t *s_detail_chat;
 static lv_obj_t *s_settings_list;
 static lv_obj_t *s_detail_footer;
 static lv_obj_t *s_battery_label;
+static lv_obj_t *s_control_link_icon;
+static lv_obj_t *s_control_link_text;
 static lv_obj_t *s_settings_wifi;
 static lv_obj_t *s_settings_ip;
 static lv_obj_t *s_settings_bridge;
@@ -2157,6 +2159,19 @@ static void build_control(void)
     lv_obj_add_event_cb(s_custom_quick, quick_clicked, LV_EVENT_CLICKED, s_custom);
     lv_obj_add_event_cb(s_dotii_quick, quick_clicked, LV_EVENT_CLICKED, s_dotii);
 
+    /* 链路模式行：图标 + 文本（Wi-Fi / 蓝牙），位于快捷按钮与电量之间。 */
+    lv_obj_t *link_row = lv_obj_create(safe);
+    lv_obj_remove_style_all(link_row);
+    lv_obj_set_size(link_row, 340, 34);
+    lv_obj_align(link_row, LV_ALIGN_TOP_MID, 0, 250);
+    lv_obj_set_flex_flow(link_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(link_row, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(link_row, 8, 0);
+    lv_obj_remove_flag(link_row, LV_OBJ_FLAG_SCROLLABLE);
+    s_control_link_icon = make_label(link_row, LV_SYMBOL_WIFI, &lv_font_montserrat_20, COLOR_BLUE);
+    s_control_link_text = make_label(link_row, "Wi-Fi 模式", &ui_font_detail_20, COLOR_MUTED);
+
     s_battery_label = make_label(safe, "电量 --", &s_ui_font, COLOR_MUTED);
     lv_obj_set_width(s_battery_label, 300);
     lv_label_set_long_mode(s_battery_label, LV_LABEL_LONG_DOT);
@@ -2737,6 +2752,21 @@ static void ui_timer(lv_timer_t *timer)
     lv_label_set_text(s_time_bambu_detail, clock);
     lv_label_set_text(s_time_zai_main, clock);
     lv_label_set_text(s_time_claudecode_main, clock);
+
+    /* 控制中心链路模式行：图标与连接状态每秒刷新。 */
+    if (s_control_link_icon != NULL) {
+        const bool ble_link = device_config_get()->link_mode == DEVICE_LINK_MODE_BLE;
+        const bool link_online = ble_link ? ble_bridge_is_connected()
+                                          : connectivity_is_wifi_connected();
+        const uint32_t link_color = !link_online ? COLOR_MUTED :
+            ble_link ? COLOR_VIOLET : COLOR_BLUE;
+        lv_label_set_text(s_control_link_icon,
+                          ble_link ? LV_SYMBOL_BLUETOOTH : LV_SYMBOL_WIFI);
+        lv_obj_set_style_text_color(s_control_link_icon, color(link_color), 0);
+        lv_label_set_text(s_control_link_text,
+                          ble_link ? (link_online ? "蓝牙模式 · 已连接" : "蓝牙模式 · 待连接")
+                                   : (link_online ? "Wi-Fi 模式 · 已连接" : "Wi-Fi 模式 · 待连接"));
+    }
 
     char summary[80];
     connectivity_get_summary(summary, sizeof(summary));
