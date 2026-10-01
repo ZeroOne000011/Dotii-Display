@@ -20,4 +20,3 @@ esp_err_t device_config_init(void);
 const device_config_values_t *device_config_get(void);
 esp_err_t device_config_save(const device_config_values_t *values);
 esp_err_t device_config_clear_provisioning(void);
-esp_err_t device_config_set_link_mode(uint8_t mode);

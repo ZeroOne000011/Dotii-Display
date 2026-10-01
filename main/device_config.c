@@ -74,22 +74,6 @@ esp_err_t device_config_save(const device_config_values_t *values)
     return error;
 }
 
-esp_err_t device_config_set_link_mode(uint8_t mode)
-{
-    if (mode != DEVICE_LINK_MODE_WIFI && mode != DEVICE_LINK_MODE_BLE) {
-        return ESP_ERR_INVALID_ARG;
-    }
-    nvs_handle_t handle;
-    esp_err_t error = nvs_open(NAMESPACE, NVS_READWRITE, &handle);
-    if (error != ESP_OK) return error;
-    if ((error = nvs_set_u8(handle, "link_mode", mode)) == ESP_OK) {
-        error = nvs_commit(handle);
-    }
-    nvs_close(handle);
-    if (error == ESP_OK) s_config.link_mode = mode;
-    return error;
-}
-
 esp_err_t device_config_clear_provisioning(void)
 {
     const uint8_t kept_link_mode = s_config.link_mode;
