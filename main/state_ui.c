@@ -2754,7 +2754,8 @@ static void goto_page(int delta)
         int step = ((int)current_page + (delta > 0 ? (int)offset : -(int)offset));
         uint8_t next = (uint8_t)((step % (int)PAGE_COUNT + (int)PAGE_COUNT) % (int)PAGE_COUNT);
         if (page_enabled(next)) {
-            load_screen(page_screen(next), true);
+            /* 转场方向跟随滑动：左滑（下一页）SWEEP_LEFT，右滑 SWEEP_RIGHT。 */
+            load_screen(page_screen(next), delta > 0);
             return;
         }
     }
