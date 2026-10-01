@@ -41,8 +41,13 @@ esp_err_t device_config_init(void)
     uint8_t provisioned = 0;
     (void)nvs_get_u8(handle, "provisioned", &provisioned);
     s_config.provisioned = provisioned == 1;
+    uint8_t link_mode = DEVICE_LINK_MODE_WIFI;
+    (void)nvs_get_u8(handle, "link_mode", &link_mode);
+    s_config.link_mode = link_mode == DEVICE_LINK_MODE_BLE ? DEVICE_LINK_MODE_BLE : DEVICE_LINK_MODE_WIFI;
     nvs_close(handle);
-    ESP_LOGI(TAG, "Runtime configuration loaded (provisioned=%s)", s_config.provisioned ? "yes" : "no");
+    ESP_LOGI(TAG, "Runtime configuration loaded (provisioned=%s link=%s)",
+             s_config.provisioned ? "yes" : "no",
+             s_config.link_mode == DEVICE_LINK_MODE_BLE ? "ble" : "wifi");
     return ESP_OK;
 }
 
@@ -68,14 +73,38 @@ esp_err_t device_config_save(const device_config_values_t *values)
     return error;
 }
 
+esp_err_t device_config_set_link_mode(uint8_t mode)
+{
+    if (mode != DEVICE_LINK_MODE_WIFI && mode != DEVICE_LINK_MODE_BLE) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    nvs_handle_t handle;
+    esp_err_t error = nvs_open(NAMESPACE, NVS_READWRITE, &handle);
+    if (error != ESP_OK) return error;
+    if ((error = nvs_set_u8(handle, "link_mode", mode)) == ESP_OK) {
+        error = nvs_commit(handle);
+    }
+    nvs_close(handle);
+    if (error == ESP_OK) s_config.link_mode = mode;
+    return error;
+}
+
 esp_err_t device_config_clear_provisioning(void)
 {
+    const uint8_t kept_link_mode = s_config.link_mode;
     nvs_handle_t handle;
     esp_err_t error = nvs_open(NAMESPACE, NVS_READWRITE, &handle);
     if (error != ESP_OK) return error;
     error = nvs_erase_all(handle);
+    if (error == ESP_OK && kept_link_mode != DEVICE_LINK_MODE_WIFI) {
+        /* 链路模式是用户显式选择，重置配网后保留。 */
+        error = nvs_set_u8(handle, "link_mode", kept_link_mode);
+    }
     if (error == ESP_OK) error = nvs_commit(handle);
     nvs_close(handle);
-    if (error == ESP_OK) memset(&s_config, 0, sizeof(s_config));
+    if (error == ESP_OK) {
+        memset(&s_config, 0, sizeof(s_config));
+        s_config.link_mode = kept_link_mode;
+    }
     return error;
 }

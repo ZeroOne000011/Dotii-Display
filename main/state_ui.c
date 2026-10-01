@@ -2189,6 +2189,59 @@ static lv_obj_t *make_setting_card(lv_obj_t *parent, const char *title, const ch
     return detail_label;
 }
 
+static lv_obj_t *s_settings_link_detail;
+static lv_obj_t *s_settings_link_button_label;
+
+static void link_mode_update_labels(void)
+{
+    const bool ble = device_config_get()->link_mode == DEVICE_LINK_MODE_BLE;
+    lv_label_set_text(s_settings_link_detail, ble ? "蓝牙（推送快照，无需 Wi-Fi）" : "Wi-Fi（完整功能）");
+    lv_label_set_text(s_settings_link_button_label,
+                      ble ? "长按切换到 Wi-Fi 模式" : "长按切换到蓝牙模式");
+}
+
+static void link_mode_anim_exec(void *object, int32_t value)
+{
+    lv_color_t mixed = lv_color_mix(color(0x16324A), color(COLOR_BLUE_DARK), (uint8_t)value);
+    lv_obj_set_style_bg_color((lv_obj_t *)object, mixed, 0);
+    lv_obj_set_style_bg_color((lv_obj_t *)object, mixed, LV_STATE_PRESSED);
+}
+
+static void link_mode_anim_done(lv_anim_t *animation)
+{
+    (void)animation;
+    const uint8_t next = device_config_get()->link_mode == DEVICE_LINK_MODE_BLE
+                             ? DEVICE_LINK_MODE_WIFI : DEVICE_LINK_MODE_BLE;
+    if (device_config_set_link_mode(next) == ESP_OK) {
+        lv_label_set_text(s_settings_link_button_label, "已切换，正在重新启动");
+        esp_restart();
+        return;
+    }
+    lv_label_set_text(s_settings_link_button_label, "切换失败，请重试");
+}
+
+static void link_mode_event(lv_event_t *event)
+{
+    lv_event_code_t code = lv_event_get_code(event);
+    lv_obj_t *button = lv_event_get_current_target(event);
+    if (code == LV_EVENT_PRESSED) {
+        lv_label_set_text(s_settings_link_button_label, "继续按住以确认");
+        lv_anim_t animation;
+        lv_anim_init(&animation);
+        lv_anim_set_var(&animation, button);
+        lv_anim_set_user_data(&animation, button);
+        lv_anim_set_values(&animation, 0, 255);
+        lv_anim_set_duration(&animation, 1200);
+        lv_anim_set_exec_cb(&animation, link_mode_anim_exec);
+        lv_anim_set_completed_cb(&animation, link_mode_anim_done);
+        lv_anim_start(&animation);
+    } else if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
+        lv_anim_delete(button, link_mode_anim_exec);
+        lv_obj_set_style_bg_color(button, color(COLOR_SURFACE), 0);
+        link_mode_update_labels();
+    }
+}
+
 static void build_settings(void)
 {
     s_settings = lv_obj_create(NULL);
@@ -2214,6 +2267,18 @@ static void build_settings(void)
     lv_obj_t *refresh_text = make_label(refresh, "立即刷新数据", &ui_font_detail_20, COLOR_TEXT);
     lv_obj_center(refresh_text);
     lv_obj_add_event_cb(refresh, refresh_clicked, LV_EVENT_CLICKED, NULL);
+
+    s_settings_link_detail = make_setting_card(s_settings_list, "连接方式", "Wi-Fi（完整功能）");
+    lv_obj_t *link_switch = lv_button_create(s_settings_list);
+    lv_obj_set_width(link_switch, LV_PCT(100));
+    lv_obj_set_height(link_switch, 54);
+    lv_obj_set_style_radius(link_switch, 18, 0);
+    lv_obj_set_style_bg_color(link_switch, color(COLOR_BLUE_DARK), 0);
+    s_settings_link_button_label = make_label(link_switch, "长按切换到蓝牙模式",
+                                              &ui_font_detail_20, COLOR_TEXT);
+    lv_obj_center(s_settings_link_button_label);
+    lv_obj_add_event_cb(link_switch, link_mode_event, LV_EVENT_ALL, NULL);
+    link_mode_update_labels();
 
     s_settings_wifi = make_setting_card(s_settings_list, "网络", "未配置");
     s_settings_ip = make_setting_card(s_settings_list, "设备地址", "IP --");

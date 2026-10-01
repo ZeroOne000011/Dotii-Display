@@ -931,6 +931,13 @@ function renderCollectorStatus(snapshot, modules, bridge) {
     rows.push(["Claude Code", "waiting", null, ["waiting", "等待事件"]]);
   }
 
+  const bleLink = state.overview?.ble_link;
+  if (bleLink?.enabled) {
+    rows.push(bleLink.connected
+      ? ["Dotii 蓝牙", "online", null, ["online", `推送中 · r${bleLink.revision || 0}`]]
+      : ["Dotii 蓝牙", "error", null, ["error", bleLink.last_error ? "重连中" : "连接中"]]);
+  }
+
   grid.replaceChildren(...rows.map(([name, state,, [textState, text]]) => {
     const item = document.createElement("div");
     item.className = "collector-item";
@@ -1015,6 +1022,20 @@ function renderBluetooth(bluetooth = {}) {
   const status = bluetooth.device_status || {};
   const connected = bluetooth.device_connected === true;
   const recognized = devices.length > 0 || Boolean(bluetooth.last_address);
+
+  const bleLink = state.overview?.ble_link;
+  const linkRow = byId("ble-link-row");
+  const linkHelp = byId("ble-link-help");
+  if (linkRow) {
+    linkRow.hidden = !(bleLink?.enabled);
+    linkHelp.hidden = linkRow.hidden;
+    if (bleLink?.enabled) {
+      const paused = bleLink.paused === true;
+      setText("ble-link-state", paused ? "已暂停" : bleLink.connected ? "推送中" : "连接中");
+      const toggle = byId("ble-link-toggle");
+      toggle.textContent = paused ? "恢复" : "暂停";
+    }
+  }
   const blocked = ["denied", "bluetooth_off", "unavailable"].includes(bluetooth.permission_state);
   const badge = byId("bluetooth-badge");
   badge.dataset.state = running ? "running" : blocked || !available || !ready ? "error" : "ready";
@@ -1070,8 +1091,10 @@ function renderBluetooth(bluetooth = {}) {
   byId("bluetooth-install").hidden = ready || !available;
   byId("bluetooth-install").disabled = running;
   byId("bluetooth-scan").disabled = running || !available || !ready;
-  byId("bluetooth-configure").disabled = running || !available || !ready || !input.value || !byId("bluetooth-ssid").value.trim();
-  byId("bluetooth-configure").textContent = running ? "正在连接…" : "保存并连接";
+  const bleMode = byId("bluetooth-mode")?.value === "ble";
+  const wifiNeeded = !bleMode && !byId("bluetooth-ssid").value.trim();
+  byId("bluetooth-configure").disabled = running || !available || !ready || !input.value || wifiNeeded;
+  byId("bluetooth-configure").textContent = running ? "正在连接…" : bleMode ? "绑定并开始推送" : "保存并连接";
 }
 
 function customFormValue() {
@@ -1679,15 +1702,17 @@ async function scanBluetooth() {
 
 async function configureBluetooth() {
   const address = byId("bluetooth-device").value;
+  const mode = byId("bluetooth-mode").value;
   const ssid = byId("bluetooth-ssid").value.trim();
   const password = byId("bluetooth-password").value;
-  if (!address || !ssid) return showToast("请选择 Dotii 并填写 Wi-Fi 名称");
+  if (!address) return showToast("请选择 Dotii");
+  if (mode !== "ble" && !ssid) return showToast("请填写 Wi-Fi 名称");
   try {
     await bluetoothAction("/api/v1/admin/bluetooth/configure", {
-      address, ssid, password,
+      address, ssid, password, mode,
     });
     byId("bluetooth-password").value = "";
-    showToast("正在通过蓝牙配置 Dotii");
+    showToast(mode === "ble" ? "正在绑定蓝牙模式 Dotii" : "正在通过蓝牙配置 Dotii");
     await refreshOverview();
   } catch (error) { showToast(error.message || "蓝牙配置失败"); }
 }
@@ -2052,6 +2077,27 @@ byId("bluetooth-install").addEventListener("click", installBluetooth);
 byId("bluetooth-scan").addEventListener("click", scanBluetooth);
 byId("bluetooth-configure").addEventListener("click", configureBluetooth);
 byId("bluetooth-ssid").addEventListener("input", () => renderBluetooth(state.overview?.bluetooth || {}));
+byId("ble-link-toggle").addEventListener("click", async () => {
+  const paused = state.overview?.ble_link?.paused === true;
+  try {
+    const response = await fetch("/api/v1/admin/ble-link", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: paused ? "resume" : "pause" }),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+    showToast(paused ? "蓝牙推送已恢复" : "蓝牙推送已暂停");
+    await refreshOverview();
+  } catch (error) { showToast(error.message || "操作失败"); }
+});
+byId("bluetooth-mode").addEventListener("change", () => {
+  const bleMode = byId("bluetooth-mode").value === "ble";
+  byId("bluetooth-ssid-row").hidden = bleMode;
+  byId("bluetooth-password-row").hidden = bleMode;
+  byId("bluetooth-network-note").hidden = bleMode;
+  renderBluetooth(state.overview?.bluetooth || {});
+});
 byId("firmware-refresh").addEventListener("click", refreshFirmware);
 byId("firmware-flash").addEventListener("click", flashFirmware);
 byId("custom-form").addEventListener("submit", saveCustom);

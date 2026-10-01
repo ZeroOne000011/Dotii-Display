@@ -18,6 +18,7 @@
 #include "esp_netif_sntp.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "freertos/event_groups.h"
 #include "freertos/task.h"
 #include "sdkconfig.h"
@@ -39,6 +40,8 @@ static bool s_bridge_online;
 static uint8_t s_bridge_failures;
 static char s_ip[24] = "--";
 static char s_bridge_note[48] = "正在启动";
+/* 快照解析互斥：Wi-Fi 拉取与 BLE 推送两个来源共用解析与发布路径。 */
+static SemaphoreHandle_t s_parse_lock;
 /* Snapshot payloads are large and do not participate in DMA. Keep them in
    PSRAM so the Wi-Fi driver retains enough internal RAM for its RX buffers. */
 EXT_RAM_BSS_ATTR static codex_snapshot_t s_last_snapshot;
@@ -1107,6 +1110,35 @@ static void publish_offline_state(void)
     app_state_publish(&s_work_snapshot);
 }
 
+/* 用快照携带的服务器时间校准时钟（蓝牙模式无 SNTP，这是唯一时间源）。 */
+static void calibrate_clock_from_snapshot(time_t generated_at)
+{
+    if (generated_at <= 0) return;
+    time_t now = time(NULL);
+    if (now >= generated_at && now - generated_at < 30) return; /* 已同步 */
+    if (now > generated_at + 86400) return; /* 本地时间明显超前，不动 */
+    struct timeval tv = {.tv_sec = generated_at, .tv_usec = 0};
+    settimeofday(&tv, NULL);
+}
+
+/* BLE 快照通道入口：校验并发布推送的快照（与 Wi-Fi 拉取共用 parse_snapshot）。 */
+bool connectivity_ingest_snapshot(const char *json, uint32_t length)
+{
+    if (json == NULL || length == 0) return false;
+    if (!xSemaphoreTake(s_parse_lock, pdMS_TO_TICKS(500))) return false;
+    bool ok = false;
+    if (parse_snapshot(json, &s_work_snapshot)) {
+        calibrate_clock_from_snapshot(s_work_snapshot.generated_at);
+        s_last_snapshot = s_work_snapshot;
+        s_have_snapshot = true;
+        strlcpy(s_bridge_note, "蓝牙已连接", sizeof(s_bridge_note));
+        app_state_publish(&s_work_snapshot);
+        ok = true;
+    }
+    xSemaphoreGive(s_parse_lock);
+    return ok;
+}
+
 static void bridge_task(void *argument)
 {
     (void)argument;
@@ -1199,6 +1231,12 @@ void connectivity_start(void)
     const device_config_values_t *device_config = device_config_get();
     ESP_LOGI(TAG, "Preparing bridge data channel");
     s_events = xEventGroupCreate();
+    s_parse_lock = xSemaphoreCreateMutex();
+    if (s_parse_lock == NULL) {
+        strlcpy(s_bridge_note, "内部资源不足", sizeof(s_bridge_note));
+        ESP_LOGE(TAG, "Unable to create snapshot parse lock");
+        return;
+    }
     s_bambu_command_queue = xQueueCreate(4, sizeof(bambu_command_t));
     s_work_tasks = heap_caps_calloc(CODEX_TASK_DETAIL_MAX, sizeof(*s_work_tasks),
                                     MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
@@ -1216,6 +1254,13 @@ void connectivity_start(void)
     if (task_created != pdPASS) {
         strlcpy(s_bridge_note, "管理中心任务启动失败", sizeof(s_bridge_note));
         ESP_LOGE(TAG, "Unable to create bridge task");
+    }
+    if (device_config->link_mode == DEVICE_LINK_MODE_BLE) {
+        /* 蓝牙精简模式：不起 Wi-Fi，快照由 BLE 通道推送。 */
+        strlcpy(s_bridge_note, "等待蓝牙连接", sizeof(s_bridge_note));
+        ESP_LOGI(TAG, "BLE link mode: Wi-Fi station disabled");
+        ESP_LOGI(TAG, "Connectivity services started (BLE)");
+        return;
     }
     ESP_LOGI(TAG, "Starting Wi-Fi station");
     wifi_start();

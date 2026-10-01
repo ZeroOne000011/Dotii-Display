@@ -6,6 +6,7 @@
 
 void connectivity_start(void);
 void connectivity_request_refresh(void);
+bool connectivity_ingest_snapshot(const char *json, uint32_t length);
 bool connectivity_is_wifi_connected(void);
 void connectivity_get_summary(char *buffer, size_t buffer_size);
 void connectivity_get_ip(char *buffer, size_t buffer_size);

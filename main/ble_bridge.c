@@ -8,6 +8,7 @@
 #include "connectivity.h"
 #include "device_config.h"
 #include "esp_app_desc.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_system.h"
 #include "esp_timer.h"
@@ -23,10 +24,13 @@
 
 #define RX_MAX 1024
 #define RESPONSE_MAX 384
+#define SNAP_MAX 60000
 
 static const char *TAG = "ble_bridge";
 static uint8_t s_own_addr_type;
 static uint16_t s_response_handle;
+static uint16_t s_sync_handle;
+static uint16_t s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
 static uint8_t s_rx[RX_MAX + 1];
 static size_t s_rx_expected;
 static size_t s_rx_length;
@@ -34,6 +38,15 @@ static uint32_t s_rx_crc;
 static char s_response[RESPONSE_MAX] = "{\"ok\":true,\"state\":\"ready\"}";
 static bool s_prepared;
 static bool s_started;
+
+/* BLE 快照通道（管理中心 → 设备 写入，设备校验后走 Wi-Fi 同一解析路径）。 */
+static uint8_t *s_snap_buffer; /* PSRAM，懒分配 */
+static size_t s_snap_expected;
+static size_t s_snap_length;
+static uint32_t s_snap_crc;
+static uint32_t s_snap_revision;
+static uint32_t s_snap_accepted_revision;
+static char s_sync_notice[64] = "{\"resend\":false}";
 
 void ble_store_config_init(void);
 
@@ -50,6 +63,12 @@ static const ble_uuid128_t RESPONSE_UUID = BLE_UUID128_INIT(
 static const ble_uuid128_t STATUS_UUID = BLE_UUID128_INIT(
     0x43, 0x1a, 0x24, 0x87, 0x51, 0xea, 0x29, 0xa7,
     0x72, 0x4c, 0xb4, 0x4d, 0x04, 0x00, 0x4e, 0x7b);
+static const ble_uuid128_t SNAPSHOT_UUID = BLE_UUID128_INIT(
+    0x43, 0x1a, 0x24, 0x87, 0x51, 0xea, 0x29, 0xa7,
+    0x72, 0x4c, 0xb4, 0x4d, 0x05, 0x00, 0x4e, 0x7b);
+static const ble_uuid128_t SYNC_UUID = BLE_UUID128_INIT(
+    0x43, 0x1a, 0x24, 0x87, 0x51, 0xea, 0x29, 0xa7,
+    0x72, 0x4c, 0xb4, 0x4d, 0x06, 0x00, 0x4e, 0x7b);
 
 static uint32_t crc32(const uint8_t *data, size_t length)
 {
@@ -130,12 +149,20 @@ static void apply_configuration(void)
         return;
     }
     device_config_values_t next = {0};
-    bool valid = copy_required_string(root, "ssid", next.wifi_ssid, sizeof(next.wifi_ssid), false) &&
-                 copy_required_string(root, "password", next.wifi_password, sizeof(next.wifi_password), true) &&
-                 copy_required_string(root, "bridge_url", next.bridge_url, sizeof(next.bridge_url), false) &&
-                 copy_required_string(root, "bridge_token", next.bridge_token, sizeof(next.bridge_token), false) &&
-                 (strncmp(next.bridge_url, "http://", 7) == 0 || strncmp(next.bridge_url, "https://", 8) == 0) &&
-                 strlen(next.bridge_token) >= 16;
+    cJSON *mode = cJSON_GetObjectItemCaseSensitive(root, "mode");
+    bool valid = false;
+    if (cJSON_IsString(mode) && strcmp(mode->valuestring, "ble") == 0) {
+        /* 蓝牙精简模式绑定：只下发设备令牌，不写 Wi-Fi 凭证与地址。 */
+        valid = copy_required_string(root, "bridge_token", next.bridge_token, sizeof(next.bridge_token), false) &&
+                strlen(next.bridge_token) >= 16;
+    } else {
+        valid = copy_required_string(root, "ssid", next.wifi_ssid, sizeof(next.wifi_ssid), false) &&
+                copy_required_string(root, "password", next.wifi_password, sizeof(next.wifi_password), true) &&
+                copy_required_string(root, "bridge_url", next.bridge_url, sizeof(next.bridge_url), false) &&
+                copy_required_string(root, "bridge_token", next.bridge_token, sizeof(next.bridge_token), false) &&
+                (strncmp(next.bridge_url, "http://", 7) == 0 || strncmp(next.bridge_url, "https://", 8) == 0) &&
+                strlen(next.bridge_token) >= 16;
+    }
     if (!valid) {
         set_response("{\"ok\":false,\"error\":\"invalid_config\"}");
         cJSON_Delete(root);
@@ -159,8 +186,7 @@ static int handle_command(struct os_mbuf *om)
     uint16_t length = 0;
     if (ble_hs_mbuf_to_flat(om, buffer, sizeof(buffer), &length) != 0 || length < 1) {
         return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
-    }
-    if (buffer[0] == 1) {
+    }    if (buffer[0] == 1) {
         if (length != 7) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
         size_t expected = (size_t)buffer[1] | ((size_t)buffer[2] << 8);
         if (expected == 0 || expected > RX_MAX) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
@@ -192,6 +218,79 @@ static int handle_command(struct os_mbuf *om)
     return BLE_ATT_ERR_REQ_NOT_SUPPORTED;
 }
 
+static void set_sync_notice(const char *json)
+{
+    strlcpy(s_sync_notice, json, sizeof(s_sync_notice));
+    if (s_sync_handle != 0) ble_gatts_chr_updated(s_sync_handle);
+}
+
+static void request_resend(void)
+{
+    set_sync_notice("{\"resend\":true}");
+}
+
+/* BLE 快照通道写入：[1][总长 u16][crc u32][revision u32] / [2][块] / [3]。
+   校验通过走 connectivity_ingest_snapshot（与 Wi-Fi 拉取同一解析路径）。 */
+static int handle_snapshot_write(struct os_mbuf *om)
+{
+    uint8_t buffer[256];
+    uint16_t length = 0;
+    if (ble_hs_mbuf_to_flat(om, buffer, sizeof(buffer), &length) != 0 || length < 1) {
+        return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+    }
+    if (buffer[0] == 1) {
+        if (length != 11) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+        size_t expected = (size_t)buffer[1] | ((size_t)buffer[2] << 8);
+        if (expected == 0 || expected > SNAP_MAX) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+        uint32_t revision = (uint32_t)buffer[7] | ((uint32_t)buffer[8] << 8) |
+                            ((uint32_t)buffer[9] << 16) | ((uint32_t)buffer[10] << 24);
+        if (revision <= s_snap_accepted_revision) {
+            s_snap_expected = 0;
+            return 0; /* 旧 revision（重连乱序），静默丢弃 */
+        }
+        if (s_snap_buffer == NULL) {
+            s_snap_buffer = heap_caps_malloc(SNAP_MAX + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+            if (s_snap_buffer == NULL) return BLE_ATT_ERR_INSUFFICIENT_RES;
+        }
+        s_snap_expected = expected;
+        s_snap_length = 0;
+        s_snap_crc = (uint32_t)buffer[3] | ((uint32_t)buffer[4] << 8) |
+                     ((uint32_t)buffer[5] << 16) | ((uint32_t)buffer[6] << 24);
+        s_snap_revision = revision;
+        return 0;
+    }
+    if (buffer[0] == 2) {
+        if (s_snap_expected == 0 || s_snap_length + length - 1 > s_snap_expected) {
+            s_snap_expected = 0;
+            request_resend();
+            return 0;
+        }
+        memcpy(s_snap_buffer + s_snap_length, buffer + 1, length - 1);
+        s_snap_length += length - 1;
+        return 0;
+    }
+    if (buffer[0] == 3) {
+        const bool complete = s_snap_expected != 0 &&
+                              s_snap_length == s_snap_expected &&
+                              crc32(s_snap_buffer, s_snap_length) == s_snap_crc;
+        if (!complete) {
+            s_snap_expected = 0;
+            request_resend();
+            return 0;
+        }
+        s_snap_buffer[s_snap_length] = '\0';
+        if (connectivity_ingest_snapshot((const char *)s_snap_buffer, (uint32_t)s_snap_length)) {
+            s_snap_accepted_revision = s_snap_revision;
+            set_sync_notice("{\"resend\":false}");
+        } else {
+            request_resend();
+        }
+        s_snap_expected = 0;
+        return 0;
+    }
+    return BLE_ATT_ERR_REQ_NOT_SUPPORTED;
+}
+
 static int gatt_access(uint16_t conn_handle, uint16_t attr_handle,
                        struct ble_gatt_access_ctxt *ctxt, void *argument)
 {
@@ -201,6 +300,12 @@ static int gatt_access(uint16_t conn_handle, uint16_t attr_handle,
     if (ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR && ble_uuid_cmp(ctxt->chr->uuid, &COMMAND_UUID.u) == 0) {
         return handle_command(ctxt->om);
     }
+    if (ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR && ble_uuid_cmp(ctxt->chr->uuid, &SNAPSHOT_UUID.u) == 0) {
+        return handle_snapshot_write(ctxt->om);
+    }
+    if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR && ble_uuid_cmp(ctxt->chr->uuid, &SYNC_UUID.u) == 0) {
+        return os_mbuf_append(ctxt->om, s_sync_notice, strlen(s_sync_notice)) == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+    }
     if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR && ble_uuid_cmp(ctxt->chr->uuid, &RESPONSE_UUID.u) == 0) {
         return os_mbuf_append(ctxt->om, s_response, strlen(s_response)) == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
     }
@@ -209,10 +314,12 @@ static int gatt_access(uint16_t conn_handle, uint16_t attr_handle,
         connectivity_get_bridge_summary(bridge, sizeof(bridge));
         char status[RESPONSE_MAX];
         snprintf(status, sizeof(status),
-                 "{\"v\":1,\"name\":\"Dotii\",\"firmware\":\"%s\",\"provisioned\":%s,\"wifi\":%s,\"bridge\":\"%s\"}",
+                 "{\"v\":1,\"name\":\"Dotii\",\"firmware\":\"%s\",\"provisioned\":%s,\"wifi\":%s,\"mode\":\"%s\",\"bridge\":\"%s\"}",
                  esp_app_get_description()->version,
                  device_config_get()->provisioned ? "true" : "false",
-                 connectivity_is_wifi_connected() ? "true" : "false", bridge);
+                 connectivity_is_wifi_connected() ? "true" : "false",
+                 device_config_get()->link_mode == DEVICE_LINK_MODE_BLE ? "ble" : "wifi",
+                 bridge);
         return os_mbuf_append(ctxt->om, status, strlen(status)) == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
     }
     return BLE_ATT_ERR_UNLIKELY;
@@ -234,6 +341,15 @@ static const struct ble_gatt_svc_def SERVICES[] = {{
         .uuid = &STATUS_UUID.u,
         .access_cb = gatt_access,
         .flags = BLE_GATT_CHR_F_READ,
+    }, {
+        .uuid = &SNAPSHOT_UUID.u,
+        .access_cb = gatt_access,
+        .flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_ENC,
+    }, {
+        .uuid = &SYNC_UUID.u,
+        .access_cb = gatt_access,
+        .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_READ_ENC | BLE_GATT_CHR_F_NOTIFY,
+        .val_handle = &s_sync_handle,
     }, {0}}
 }, {0}};
 
@@ -267,12 +383,14 @@ static int gap_event(struct ble_gap_event *event, void *argument)
     switch (event->type) {
     case BLE_GAP_EVENT_CONNECT:
         if (event->connect.status == 0) {
+            s_conn_handle = event->connect.conn_handle;
             ESP_LOGI(TAG, "Bluetooth bridge connected");
         } else {
             advertise();
         }
         return 0;
     case BLE_GAP_EVENT_DISCONNECT:
+        s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
         ESP_LOGI(TAG, "Bluetooth bridge disconnected: %d", event->disconnect.reason);
         advertise();
         return 0;
@@ -342,6 +460,11 @@ esp_err_t ble_bridge_start(void)
     s_started = true;
     ESP_LOGI(TAG, "Bluetooth bridge started");
     return ESP_OK;
+}
+
+bool ble_bridge_is_connected(void)
+{
+    return s_conn_handle != BLE_HS_CONN_HANDLE_NONE;
 }
 
 esp_err_t ble_bridge_clear_bonds(void)

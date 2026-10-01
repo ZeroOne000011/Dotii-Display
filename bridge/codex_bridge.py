@@ -34,7 +34,7 @@ from codex_app_server import probe_app_server, run_collector
 from bambu_client import BambuConfigStore, BambuService
 from zai_client import ZaiConfigStore, ZaiService
 from claudecode_client import ClaudeCodeMonitor, hooks_installed, update_hooks
-from bluetooth_bridge import BluetoothBridge
+from bluetooth_bridge import BleLinkService, BluetoothBridge
 from firmware_flasher import FirmwareFlasher
 from platforms import current_platform
 from runtime_paths import (
@@ -1220,6 +1220,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
             "bambu_config": self.bridge.bambu_config.public(),
             "zai_config": self.bridge.zai_config.public(),
             "bluetooth": self.bridge.bluetooth.snapshot(),
+            "ble_link": self.bridge.ble_link.snapshot(),
             "firmware": self.bridge.firmware.snapshot(),
             "modules": [
                 {"id": "codex", "name": "Codex", "enabled": snapshot["modules"]["codex"], "available": True, "locked": False},
@@ -1339,6 +1340,8 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 return
             try:
                 payload = self._read_admin_action()
+                # 配网期间让出蓝牙连接（设备只接受一个中心连接）。
+                self.bridge.ble_link.pause()
                 address = local_ipv4()
                 bridge_url = f"http://{address}:{self.bridge.server_port}/api/v1/snapshot"
                 started = self.bridge.bluetooth.start_configure(
@@ -1346,6 +1349,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
                     password=payload.get("password"), bridge_url=bridge_url,
                     bridge_token=self.bridge.token,
                     current_token=payload.get("current_token", ""),
+                    mode=payload.get("mode", "wifi"),
                 )
                 status = HTTPStatus.ACCEPTED if started else HTTPStatus.CONFLICT
                 self._send_json(status, {"ok": started})
@@ -1407,6 +1411,22 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 result = self.bridge.zai.probe()
                 self.bridge.zai_check.write(result)
                 self._send_json(HTTPStatus.OK, result)
+            except (OSError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as error:
+                self._send_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+            return
+        if path == "/api/v1/admin/ble-link":
+            if self._deny_nonlocal():
+                return
+            try:
+                payload = self._read_admin_action()
+                action = payload.get("action")
+                if action not in {"pause", "resume"}:
+                    raise ValueError("action 必须是 pause 或 resume")
+                if action == "pause":
+                    self.bridge.ble_link.pause(seconds=None)
+                else:
+                    self.bridge.ble_link.resume()
+                self._send_json(HTTPStatus.OK, {"ok": True, "ble_link": self.bridge.ble_link.snapshot()})
             except (OSError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as error:
                 self._send_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
             return
@@ -1619,6 +1639,7 @@ class BridgeServer(ThreadingHTTPServer):
         zai_check: CodexCheckStore,
         claudecode: ClaudeCodeMonitor,
         bluetooth: BluetoothBridge,
+        ble_link: BleLinkService,
         firmware: FirmwareFlasher,
         runtime_folder: Path,
         application_folder: Path,
@@ -1643,6 +1664,7 @@ class BridgeServer(ThreadingHTTPServer):
         self.zai_check = zai_check
         self.claudecode = claudecode
         self.bluetooth = bluetooth
+        self.ble_link = ble_link
         self.firmware = firmware
         self.runtime_folder = runtime_folder
         self.application_folder = application_folder
@@ -1651,6 +1673,8 @@ class BridgeServer(ThreadingHTTPServer):
 
     def snapshot(self) -> dict[str, Any]:
         snapshot = self.store.read()
+        # 每次响应即快照的生成时刻：BLE 模式设备用它校准时钟，也是 stale 判定基准。
+        snapshot["generated_at_epoch"] = int(time.time())
         custom = self.custom.read()
         custom.update(self.assets.source_info())
         custom.update(self.assets.render_info())
@@ -1721,12 +1745,25 @@ def main() -> None:
     claudecode = ClaudeCodeMonitor()
     bluetooth = BluetoothBridge(writable_root)
     bluetooth.start()
+    server_ref: dict[str, Any] = {}
+
+    def _snapshot_json() -> str:
+        instance = server_ref.get("server")
+        if instance is None:
+            return "{}"
+        return json.dumps(instance.snapshot(), ensure_ascii=False, separators=(",", ":"))
+
+    ble_link = BleLinkService(bluetooth, writable_root, _snapshot_json)
+    bluetooth.on_configured = lambda address, mode: ble_link.set_binding(
+        enabled=mode == "ble", address=address)
+    ble_link.start()
     firmware = FirmwareFlasher(project_root(), writable_root)
     server = BridgeServer((arguments.host, arguments.port), store, token, runtime, collector_restart,
                           custom, modules, dotii, display, codex_check, assets, bambu_config, bambu,
                           zai_config, zai, zai_check, claudecode,
-                          bluetooth, firmware, writable_root, application_root(), arguments.codex_command,
-                          arguments.parent_pid)
+                          bluetooth, ble_link, firmware, writable_root, application_root(),
+                          arguments.codex_command, arguments.parent_pid)
+    server_ref["server"] = server
     if arguments.parent_pid > 1:
         threading.Thread(
             target=watch_parent,
