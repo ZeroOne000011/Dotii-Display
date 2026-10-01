@@ -1027,10 +1027,11 @@ function renderBluetooth(bluetooth = {}) {
   const bleLink = state.overview?.ble_link;
   const modeSelect = byId("bluetooth-mode");
   if (modeSelect && !state.bluetoothModeTouched) {
-    /* 恢复上次选择：localStorage 记忆优先，其次按推送绑定状态推断。 */
-    const saved = localStorage.getItem("bluetooth-mode");
-    modeSelect.value = saved === "ble" || saved === "wifi"
-      ? saved
+    /* 默认值反映设备实际状态：扫描/连接时读到的 STATUS.mode 优先，
+       其次按 BLE 推送绑定状态推断。 */
+    const deviceMode = bluetooth.device_status?.mode;
+    modeSelect.value = deviceMode === "ble" || deviceMode === "wifi"
+      ? deviceMode
       : (bleLink?.enabled ? "ble" : "wifi");
   }
   const bleMode = byId("bluetooth-mode")?.value === "ble";
@@ -2110,7 +2111,6 @@ byId("ble-link-toggle").addEventListener("click", async () => {
 });
 byId("bluetooth-mode").addEventListener("change", () => {
   state.bluetoothModeTouched = true;
-  localStorage.setItem("bluetooth-mode", byId("bluetooth-mode").value);
   const bleMode = byId("bluetooth-mode").value === "ble";
   byId("bluetooth-ssid-row").hidden = bleMode;
   byId("bluetooth-password-row").hidden = bleMode;

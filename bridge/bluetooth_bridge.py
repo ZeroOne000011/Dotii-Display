@@ -746,6 +746,15 @@ class BleLinkService:
             with self._lock:
                 self._connected = True
                 self._error = ""
+            # 连接后读 STATUS 刷新设备实测模式（管理页配网下拉的默认值来源）。
+            try:
+                raw = await client.read_gatt_char(STATUS_UUID)
+                status = json.loads(bytes(raw).decode("utf-8"))
+                if isinstance(status, dict):
+                    with self._bluetooth.lock:
+                        self._bluetooth.device_status = status
+            except Exception:
+                pass
             await client.start_notify(SYNC_UUID, on_sync)
             throttle = self._ble_link.PushThrottle(interval=2.0)
             while not self._stop.is_set():
