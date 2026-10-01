@@ -108,12 +108,13 @@ static lv_obj_t *s_bambu_stop;
 static lv_obj_t *s_bambu_stop_progress;
 static lv_obj_t *s_time_zai_main;
 static lv_obj_t *s_zai_arc;
+static lv_obj_t *s_zai_weekly_arc;
 static lv_obj_t *s_zai_percent;
+static lv_obj_t *s_zai_weekly_percent;
 static lv_obj_t *s_zai_plan;
 static lv_obj_t *s_zai_plan_pill;
-static lv_obj_t *s_zai_reset_day;
-static lv_obj_t *s_zai_reset_time;
-static lv_obj_t *s_zai_weekly;
+static lv_obj_t *s_zai_reset;
+static lv_obj_t *s_zai_weekly_reset;
 static lv_obj_t *s_time_claudecode_main;
 static lv_obj_t *s_claudecode_status_label;
 static lv_obj_t *s_claudecode_pill;
@@ -980,7 +981,7 @@ static lv_obj_t *make_usage_arc(lv_obj_t *parent, int32_t start_angle,
     return arc;
 }
 
-static void make_five_hour_title(lv_obj_t *parent, int32_t y)
+static void make_five_hour_title(lv_obj_t *parent, int32_t y, uint32_t accent)
 {
     lv_obj_t *row = lv_obj_create(parent);
     lv_obj_remove_style_all(row);
@@ -994,11 +995,11 @@ static void make_five_hour_title(lv_obj_t *parent, int32_t y)
     lv_obj_remove_flag(row, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_align(row, LV_ALIGN_TOP_MID, 0, y);
 
-    make_label(row, "5H", &lv_font_montserrat_22, COLOR_ORANGE);
+    make_label(row, "5H", &lv_font_montserrat_22, accent);
     lv_obj_t *title_gap = lv_obj_create(row);
     lv_obj_remove_style_all(title_gap);
     lv_obj_set_size(title_gap, 2, 1);
-    make_label(row, "剩余", &ui_font_chinese_semibold_24, COLOR_ORANGE);
+    make_label(row, "剩余", &ui_font_chinese_semibold_24, accent);
 }
 
 static lv_obj_t *make_usage_reset_row(lv_obj_t *parent, int32_t y,
@@ -1039,7 +1040,7 @@ static void build_plus_main(void)
      * falls, its right endpoint retreats from right to left. */
     lv_arc_set_mode(s_plus_weekly_arc, LV_ARC_MODE_REVERSE);
 
-    make_five_hour_title(s_plus_main, 64);
+    make_five_hour_title(s_plus_main, 64, COLOR_ORANGE);
     s_plus_five_percent = make_label(s_plus_main, "--", &ui_font_digits_64, COLOR_TEXT);
     lv_obj_set_style_transform_scale(s_plus_five_percent, 260, 0);
     lv_obj_align(s_plus_five_percent, LV_ALIGN_TOP_MID, 0, 104);
@@ -1599,76 +1600,70 @@ static void build_zai(void)
     lv_obj_remove_flag(content, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_remove_flag(content, LV_OBJ_FLAG_CLICKABLE);
 
-    s_zai_arc = lv_arc_create(content);
-    lv_obj_set_size(s_zai_arc, SCREEN_SIZE, SCREEN_SIZE);
-    lv_obj_center(s_zai_arc);
-    lv_arc_set_range(s_zai_arc, 0, 100);
-    lv_arc_set_value(s_zai_arc, 0);
-    lv_arc_set_bg_angles(s_zai_arc, 140, 400);
-    lv_obj_set_style_arc_width(s_zai_arc, 26, LV_PART_MAIN);
-    lv_obj_set_style_arc_color(s_zai_arc, color(0x120E26), LV_PART_MAIN);
-    lv_obj_set_style_arc_width(s_zai_arc, 26, LV_PART_INDICATOR);
-    lv_obj_set_style_arc_color(s_zai_arc, color(COLOR_VIOLET), LV_PART_INDICATOR);
-    lv_obj_remove_style(s_zai_arc, NULL, LV_PART_KNOB);
-    lv_obj_remove_flag(s_zai_arc, LV_OBJ_FLAG_CLICKABLE);
+    /* Same split-ring geometry as the Codex dual-limit page: violet 5-hour
+     * arc across the top, blue weekly arc anchored at its left endpoint. */
+    s_zai_arc = make_usage_arc(content, 188, 352, COLOR_VIOLET);
+    s_zai_weekly_arc = make_usage_arc(content, 8, 172, COLOR_BLUE_USAGE);
+    lv_arc_set_mode(s_zai_weekly_arc, LV_ARC_MODE_REVERSE);
 
-    lv_obj_t *title = make_label(content, "Z.ai", &lv_font_montserrat_28, COLOR_TEXT);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 48);
-    s_time_zai_main = make_label(content, "--:--", &lv_font_montserrat_20, COLOR_MUTED);
-    lv_obj_align(s_time_zai_main, LV_ALIGN_TOP_MID, 0, 82);
-
-    lv_obj_t *kicker = make_label(content, "5 小时剩余", &ui_font_detail_20, COLOR_MUTED);
-    lv_obj_align(kicker, LV_ALIGN_CENTER, 0, -82);
+    make_five_hour_title(content, 64, COLOR_VIOLET);
     s_zai_percent = make_label(content, "--", &ui_font_digits_64, COLOR_TEXT);
-    lv_obj_set_style_transform_scale(s_zai_percent, 282, 0);
-    lv_obj_align(s_zai_percent, LV_ALIGN_CENTER, 0, -19);
+    lv_obj_set_style_transform_scale(s_zai_percent, 260, 0);
+    lv_obj_align(s_zai_percent, LV_ALIGN_TOP_MID, 0, 104);
+    s_zai_reset = make_usage_reset_row(content, 166, NULL);
 
     s_zai_plan_pill = lv_obj_create(content);
-    lv_obj_set_size(s_zai_plan_pill, 138, 48);
+    lv_obj_set_size(s_zai_plan_pill, 224, 48);
+    lv_obj_align(s_zai_plan_pill, LV_ALIGN_CENTER, 0, 0);
     lv_obj_set_style_radius(s_zai_plan_pill, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(s_zai_plan_pill, color(COLOR_VIOLET), 0);
-    lv_obj_set_style_bg_opa(s_zai_plan_pill, LV_OPA_20, 0);
+    lv_obj_set_style_bg_color(s_zai_plan_pill, color(0x1D1735), 0);
+    lv_obj_set_style_bg_opa(s_zai_plan_pill, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(s_zai_plan_pill, 0, 0);
+    lv_obj_set_style_pad_all(s_zai_plan_pill, 0, 0);
     lv_obj_remove_flag(s_zai_plan_pill, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_remove_flag(s_zai_plan_pill, LV_OBJ_FLAG_CLICKABLE);
-    s_zai_plan = make_label(s_zai_plan_pill, "--", &ui_font_detail_20, COLOR_VIOLET);
-    lv_obj_set_size(s_zai_plan, 120, 22);
+    lv_obj_t *plan_content = lv_obj_create(s_zai_plan_pill);
+    lv_obj_remove_style_all(plan_content);
+    lv_obj_set_size(plan_content, 210, 40);
+    lv_obj_align(plan_content, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_set_style_pad_all(plan_content, 0, 0);
+    lv_obj_set_style_pad_column(plan_content, 0, 0);
+    lv_obj_set_layout(plan_content, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(plan_content, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(plan_content, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    s_time_zai_main = make_label(plan_content, "--:--", &s_ui_font, COLOR_TEXT);
+    lv_obj_set_height(s_time_zai_main, 26);
+    lv_obj_set_style_text_align(s_time_zai_main, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_transform_scale(s_time_zai_main, 310, 0);
+    lv_obj_set_style_text_outline_stroke_color(s_time_zai_main, color(COLOR_TEXT), 0);
+    lv_obj_set_style_text_outline_stroke_width(s_time_zai_main, 2, 0);
+    lv_obj_set_style_text_outline_stroke_opa(s_time_zai_main, LV_OPA_COVER, 0);
+    lv_obj_t *plan_gap = lv_obj_create(plan_content);
+    lv_obj_remove_style_all(plan_gap);
+    lv_obj_set_size(plan_gap, 10, 1);
+    lv_obj_t *plan_separator = make_label(plan_content, "·", &s_ui_font, COLOR_MUTED);
+    lv_obj_set_height(plan_separator, 30);
+    lv_obj_set_style_text_align(plan_separator, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_transform_scale(plan_separator, 460, 0);
+    lv_obj_set_style_translate_y(plan_separator, -4, 0);
+    lv_obj_t *plan_gap2 = lv_obj_create(plan_content);
+    lv_obj_remove_style_all(plan_gap2);
+    lv_obj_set_size(plan_gap2, 12, 1);
+    s_zai_plan = make_label(plan_content, "--", &ui_font_detail_20, COLOR_VIOLET);
+    lv_obj_set_height(s_zai_plan, 26);
     lv_obj_set_style_text_align(s_zai_plan, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_center(s_zai_plan);
-    lv_obj_align(s_zai_plan_pill, LV_ALIGN_CENTER, 0, 52);
+    lv_obj_set_style_text_outline_stroke_color(s_zai_plan, color(COLOR_VIOLET), 0);
+    lv_obj_set_style_text_outline_stroke_width(s_zai_plan, 2, 0);
+    lv_obj_set_style_text_outline_stroke_opa(s_zai_plan, LV_OPA_COVER, 0);
 
-    lv_obj_t *reset_box = lv_obj_create(content);
-    lv_obj_remove_style_all(reset_box);
-    lv_obj_set_size(reset_box, 132, 56);
-    lv_obj_set_pos(reset_box, 92, 346);
-    lv_obj_remove_flag(reset_box, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_t *reset_row = lv_obj_create(reset_box);
-    lv_obj_remove_style_all(reset_row);
-    lv_obj_set_size(reset_row, 132, 25);
-    lv_obj_align(reset_row, LV_ALIGN_TOP_MID, 4, 0);
-    lv_obj_set_layout(reset_row, LV_LAYOUT_FLEX);
-    lv_obj_set_flex_flow(reset_row, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(reset_row, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_column(reset_row, 4, 0);
-    lv_obj_remove_flag(reset_row, LV_OBJ_FLAG_SCROLLABLE);
-    s_zai_reset_day = make_label(reset_row, "--", &lv_font_montserrat_22, COLOR_TEXT);
-    s_zai_reset_time = make_label(reset_row, "", &lv_font_montserrat_18, COLOR_TEXT);
-    lv_obj_t *reset_caption = make_label(reset_box, "重置时间", &s_ui_font, COLOR_MUTED);
-    lv_obj_set_style_transform_scale(reset_caption, 282, 0);
-    lv_obj_align(reset_caption, LV_ALIGN_BOTTOM_MID, 0, 1);
-
-    lv_obj_t *state_box = lv_obj_create(content);
-    lv_obj_remove_style_all(state_box);
-    lv_obj_set_size(state_box, 132, 56);
-    lv_obj_set_pos(state_box, 242, 346);
-    lv_obj_remove_flag(state_box, LV_OBJ_FLAG_SCROLLABLE);
-    s_zai_weekly = make_label(state_box, "--", &lv_font_montserrat_22, COLOR_TEXT);
-    lv_obj_set_width(s_zai_weekly, 132);
-    lv_obj_set_style_text_align(s_zai_weekly, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(s_zai_weekly, LV_ALIGN_TOP_MID, 0, 0);
-    lv_obj_t *state_caption = make_label(state_box, "周剩余", &s_ui_font, COLOR_MUTED);
-    lv_obj_set_style_transform_scale(state_caption, 282, 0);
-    lv_obj_align(state_caption, LV_ALIGN_BOTTOM_MID, 0, 1);
+    lv_obj_t *weekly_title = make_label(content, "周剩余", &ui_font_chinese_semibold_24,
+                                        COLOR_BLUE_USAGE);
+    lv_obj_align(weekly_title, LV_ALIGN_TOP_MID, 0, 278);
+    s_zai_weekly_percent = make_label(content, "--", &ui_font_digits_64, COLOR_TEXT);
+    lv_obj_set_style_transform_scale(s_zai_weekly_percent, 260, 0);
+    lv_obj_align(s_zai_weekly_percent, LV_ALIGN_TOP_MID, 0, 318);
+    s_zai_weekly_reset = make_usage_reset_row(content, 378, NULL);
 
     make_page_dots(content, 2);
 }
@@ -2417,6 +2412,7 @@ static void update_snapshot(const codex_snapshot_t *snapshot)
         lv_arc_set_value(s_zai_arc, 0);
         lv_obj_set_style_arc_color(s_zai_arc, color(0x59605E), LV_PART_INDICATOR);
     }
+    set_usage_reset_text(s_zai_reset, snapshot->zai_five_hour_reset_date, true);
     if (snapshot->zai_plan_level[0]) {
         lv_label_set_text_fmt(s_zai_plan, "%s 套餐", snapshot->zai_plan_level);
     } else {
@@ -2424,26 +2420,20 @@ static void update_snapshot(const codex_snapshot_t *snapshot)
                           zai_online ? "已连接" :
                           snapshot->zai_configured ? "连接中" : "未配置");
     }
-    if (zai_available && snapshot->zai_five_hour_reset_date[0]) {
-        const char *reset_space = strchr(snapshot->zai_five_hour_reset_date, ' ');
-        if (reset_space != NULL) {
-            lv_label_set_text_fmt(s_zai_reset_day, "%.*s",
-                                  (int)(reset_space - snapshot->zai_five_hour_reset_date),
-                                  snapshot->zai_five_hour_reset_date);
-            lv_label_set_text(s_zai_reset_time, reset_space + 1);
-        } else {
-            lv_label_set_text(s_zai_reset_day, snapshot->zai_five_hour_reset_date);
-            lv_label_set_text(s_zai_reset_time, "");
-        }
+    if (zai_online && snapshot->zai_weekly_available) {
+        lv_label_set_text_fmt(s_zai_weekly_percent, "%d%%", snapshot->zai_weekly_remaining_percent);
+        lv_arc_set_value(s_zai_weekly_arc, snapshot->zai_weekly_remaining_percent);
+        lv_obj_set_style_arc_color(s_zai_weekly_arc, color(COLOR_BLUE_USAGE), LV_PART_INDICATOR);
     } else {
-        lv_label_set_text(s_zai_reset_day, "--");
-        lv_label_set_text(s_zai_reset_time, "");
+        lv_label_set_text(s_zai_weekly_percent, "--");
+        lv_arc_set_value(s_zai_weekly_arc, 0);
+        lv_obj_set_style_arc_color(s_zai_weekly_arc, color(0x59605E), LV_PART_INDICATOR);
     }
-    if (snapshot->zai_weekly_available) {
-        lv_label_set_text_fmt(s_zai_weekly, "%d%%", snapshot->zai_weekly_remaining_percent);
-    } else {
-        lv_label_set_text(s_zai_weekly, "--");
-    }
+    /* Z.ai 的周窗口按订阅周期浮动，重置时间整体用同一数字字体显示。 */
+    lv_label_set_text(s_zai_weekly_reset,
+                      (zai_online && snapshot->zai_weekly_available &&
+                       snapshot->zai_weekly_reset_date[0])
+                          ? snapshot->zai_weekly_reset_date : "--");
 
     bool claudecode_online = snapshot->claudecode_connected;
     uint32_t claudecode_color = COLOR_MUTED;
