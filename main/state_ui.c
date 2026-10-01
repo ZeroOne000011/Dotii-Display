@@ -2246,9 +2246,9 @@ static void build_settings(void)
     /* 蓝牙模式无 Wi-Fi/IP 语境，网络卡片不展示；链路模式切换统一在管理页。 */
     const bool ble_mode = device_config_get()->link_mode == DEVICE_LINK_MODE_BLE;
     s_settings_wifi = make_setting_card(s_settings_list, "网络", "未配置");
-    if (ble_mode) lv_obj_add_flag(s_settings_wifi, LV_OBJ_FLAG_HIDDEN);
+    if (ble_mode) lv_obj_add_flag(lv_obj_get_parent(s_settings_wifi), LV_OBJ_FLAG_HIDDEN);
     s_settings_ip = make_setting_card(s_settings_list, "设备地址", "IP --");
-    if (ble_mode) lv_obj_add_flag(s_settings_ip, LV_OBJ_FLAG_HIDDEN);
+    if (ble_mode) lv_obj_add_flag(lv_obj_get_parent(s_settings_ip), LV_OBJ_FLAG_HIDDEN);
     s_settings_bridge = make_setting_card(s_settings_list, "数据源", "未配置");
     char device_info[72];
     snprintf(device_info, sizeof(device_info), "Dotii %s · ESP-IDF %s",
