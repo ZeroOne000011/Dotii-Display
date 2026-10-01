@@ -1,3 +1,7 @@
+/* 显式 display 样式（如 .bambu-fields label 的 grid）会压过 UA 的
+   [hidden] 默认，这里统一兜底，保证 hidden 属性永远生效。 */
+[hidden] { display: none !important; }
+
 :root {
   color-scheme: dark;
   --bg: #080b0b;
