@@ -1024,6 +1024,15 @@ function renderBluetooth(bluetooth = {}) {
   const recognized = devices.length > 0 || Boolean(bluetooth.last_address);
 
   const bleLink = state.overview?.ble_link;
+  const bleMode = byId("bluetooth-mode")?.value === "ble";
+  setText("bluetooth-heading-copy", bleMode
+    ? "发现附近设备并绑定蓝牙推送，无需 Wi-Fi 环境。"
+    : "发现附近设备，并安全下发局域网与管理中心配置。");
+  const wifiHelp = byId("bluetooth-wifi-help");
+  const bleHelp = byId("bluetooth-ble-help");
+  if (wifiHelp) wifiHelp.hidden = bleMode;
+  if (bleHelp) bleHelp.hidden = !bleMode;
+
   const linkRow = byId("ble-link-row");
   const linkHelp = byId("ble-link-help");
   if (linkRow) {
@@ -1091,7 +1100,6 @@ function renderBluetooth(bluetooth = {}) {
   byId("bluetooth-install").hidden = ready || !available;
   byId("bluetooth-install").disabled = running;
   byId("bluetooth-scan").disabled = running || !available || !ready;
-  const bleMode = byId("bluetooth-mode")?.value === "ble";
   const wifiNeeded = !bleMode && !byId("bluetooth-ssid").value.trim();
   byId("bluetooth-configure").disabled = running || !available || !ready || !input.value || wifiNeeded;
   byId("bluetooth-configure").textContent = running ? "正在连接…" : bleMode ? "绑定并开始推送" : "保存并连接";

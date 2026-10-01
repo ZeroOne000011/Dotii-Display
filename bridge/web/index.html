@@ -744,9 +744,17 @@
               <div class="dependency-heading">
                 <div>
                   <h3>Dotii 蓝牙配网</h3>
-                  <p>发现附近设备，并安全下发局域网与管理中心配置。</p>
+                  <p id="bluetooth-heading-copy">发现附近设备，并安全下发局域网与管理中心配置。</p>
                 </div>
                 <span class="dependency-badge" id="bluetooth-badge" data-state="loading">检查中</span>
+              </div>
+              <div class="bambu-fields settings-bambu-fields bluetooth-fields">
+                <label><span>连接方式</span>
+                  <select id="bluetooth-mode" aria-label="连接方式">
+                    <option value="wifi">Wi-Fi（完整功能）</option>
+                    <option value="ble">蓝牙（推送快照，无需 Wi-Fi）</option>
+                  </select>
+                </label>
               </div>
               <div class="time-field firmware-port-field">
                 <span class="time-field-label" id="bluetooth-device-label">附近设备</span>
@@ -759,12 +767,6 @@
                 </div>
               </div>
               <div class="bambu-fields settings-bambu-fields bluetooth-fields">
-                <label><span>连接方式</span>
-                  <select id="bluetooth-mode" aria-label="连接方式">
-                    <option value="wifi">Wi-Fi（完整功能）</option>
-                    <option value="ble">蓝牙（推送快照，无需 Wi-Fi）</option>
-                  </select>
-                </label>
                 <label id="bluetooth-ssid-row"><span>Wi-Fi 名称</span><input id="bluetooth-ssid" maxlength="32" autocomplete="off" placeholder="Dotii 要连接的 2.4 GHz 网络"></label>
                 <label id="bluetooth-password-row"><span>Wi-Fi 密码</span><input id="bluetooth-password" type="password" maxlength="64" autocomplete="new-password" placeholder="只发送给所选 Dotii"></label>
               </div>
@@ -775,7 +777,8 @@
                 <button class="quiet-button" id="bluetooth-scan" type="button">扫描 Dotii</button>
                 <button class="primary-button" id="bluetooth-configure" type="button" disabled>保存并连接</button>
               </div>
-              <p class="bambu-help">Wi-Fi 密码只用于本次加密蓝牙配置，不会保存在电脑端。配置成功后 Dotii 会重启并继续使用局域网高速数据链路。</p>
+              <p class="bambu-help" id="bluetooth-wifi-help">Wi-Fi 密码只用于本次加密蓝牙配置，不会保存在电脑端。配置成功后 Dotii 会重启并继续使用局域网高速数据链路。</p>
+              <p class="bambu-help" id="bluetooth-ble-help" hidden>绑定后 Dotii 不再连接 Wi-Fi，全部状态由这台电脑经加密蓝牙推送；自定义画面与相机在蓝牙模式不可用。设备重启会自动重连。</p>
               <div class="bambu-fields settings-bambu-fields" id="ble-link-row" hidden>
                 <label><span>蓝牙推送</span><strong id="ble-link-state">推送中</strong></label>
                 <div class="form-actions" style="margin-top:0">
