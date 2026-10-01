@@ -66,7 +66,8 @@ esp_err_t device_config_save(const device_config_values_t *values)
         (error = nvs_set_str(handle, "wifi_pass", values->wifi_password)) == ESP_OK &&
         (error = nvs_set_str(handle, "bridge_url", values->bridge_url)) == ESP_OK &&
         (error = nvs_set_str(handle, "bridge_tok", values->bridge_token)) == ESP_OK &&
-        (error = nvs_set_u8(handle, "provisioned", 1)) == ESP_OK) {
+        (error = nvs_set_u8(handle, "provisioned", 1)) == ESP_OK &&
+        (error = nvs_set_u8(handle, "link_mode", values->link_mode)) == ESP_OK) {
         error = nvs_commit(handle);
     }
     nvs_close(handle);

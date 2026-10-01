@@ -152,9 +152,10 @@ static void apply_configuration(void)
     cJSON *mode = cJSON_GetObjectItemCaseSensitive(root, "mode");
     bool valid = false;
     if (cJSON_IsString(mode) && strcmp(mode->valuestring, "ble") == 0) {
-        /* 蓝牙精简模式绑定：只下发设备令牌，不写 Wi-Fi 凭证与地址。 */
+        /* 蓝牙精简模式绑定：只下发设备令牌；配网选择即链路模式的事实源。 */
         valid = copy_required_string(root, "bridge_token", next.bridge_token, sizeof(next.bridge_token), false) &&
                 strlen(next.bridge_token) >= 16;
+        next.link_mode = DEVICE_LINK_MODE_BLE;
     } else {
         valid = copy_required_string(root, "ssid", next.wifi_ssid, sizeof(next.wifi_ssid), false) &&
                 copy_required_string(root, "password", next.wifi_password, sizeof(next.wifi_password), true) &&
@@ -162,6 +163,7 @@ static void apply_configuration(void)
                 copy_required_string(root, "bridge_token", next.bridge_token, sizeof(next.bridge_token), false) &&
                 (strncmp(next.bridge_url, "http://", 7) == 0 || strncmp(next.bridge_url, "https://", 8) == 0) &&
                 strlen(next.bridge_token) >= 16;
+        next.link_mode = DEVICE_LINK_MODE_WIFI;
     }
     if (!valid) {
         set_response("{\"ok\":false,\"error\":\"invalid_config\"}");
