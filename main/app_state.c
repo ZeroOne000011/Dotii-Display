@@ -115,12 +115,24 @@ void app_state_make_preview(codex_snapshot_t *snapshot)
     snapshot->conversation_mode = CODEX_CONVERSATION_PROGRESS;
     snapshot->codex_enabled = true;
     snapshot->bambu_enabled = true;
+    snapshot->zai_enabled = true;
+    snapshot->claudecode_enabled = true;
     snapshot->custom_enabled = true;
     snapshot->dotii_enabled = true;
     snapshot->custom_ring_enabled = true;
     snapshot->bambu_configured = true;
     snapshot->bambu_connected = true;
     snapshot->bambu_commandable = true;
+    snapshot->zai_configured = true;
+    snapshot->zai_connected = true;
+    snapshot->zai_five_hour_available = true;
+    snapshot->zai_five_hour_remaining_percent = 76;
+    snapshot->zai_weekly_available = true;
+    snapshot->zai_weekly_remaining_percent = 34;
+    snapshot->claudecode_connected = true;
+    snapshot->claudecode_status = CODEX_STATUS_WORKING;
+    snapshot->claudecode_session_count = 2;
+    snapshot->claudecode_updated_at = time(NULL);
     snapshot->docked_rotation_tenths = 840;
     snapshot->screen_off_timeout_seconds = 60;
     snapshot->sleep_timeout_seconds = 300;
@@ -178,6 +190,9 @@ void app_state_make_preview(codex_snapshot_t *snapshot)
     strlcpy(snapshot->bambu_status_text, "打印中", sizeof(snapshot->bambu_status_text));
     strlcpy(snapshot->bambu_filename, "可爱机器人外壳.3mf", sizeof(snapshot->bambu_filename));
     strlcpy(snapshot->bambu_filament, "PLA Basic", sizeof(snapshot->bambu_filament));
+    strlcpy(snapshot->zai_plan_level, "PRO", sizeof(snapshot->zai_plan_level));
+    strlcpy(snapshot->zai_five_hour_reset_date, "08-18 16:20", sizeof(snapshot->zai_five_hour_reset_date));
+    strlcpy(snapshot->zai_weekly_reset_date, "08-22 10:00", sizeof(snapshot->zai_weekly_reset_date));
 
     codex_task_detail_t task = {
         .status = snapshot->status,

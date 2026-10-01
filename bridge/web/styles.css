@@ -138,6 +138,39 @@ h1 { font-size: 17px; line-height: 1.2; letter-spacing: -.01em; }
   -webkit-mask-image: url("/assets/openai.svg");
   mask-image: url("/assets/openai.svg");
 }
+.zai-icon {
+  color: var(--blue);
+  -webkit-mask-image: url("/assets/zai-mask.png");
+  mask-image: url("/assets/zai-mask.png");
+}
+.claudecode-icon {
+  color: #D97757;
+  -webkit-mask-image: url("/assets/claudecode.svg");
+  mask-image: url("/assets/claudecode.svg");
+}
+.claudecode-session-list { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 8px; }
+.collector-block { display: grid; gap: 8px; }
+.collector-grid { display: grid; gap: 6px; }
+.collector-grid .collector-item {
+  display: flex; align-items: center; gap: 8px; padding: 7px 12px;
+  border: 1px solid var(--line); border-radius: 9px; background: #0d1211;
+  color: var(--muted-strong); font-size: 13px;
+}
+.collector-grid .collector-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex: 0 0 auto; }
+.collector-grid .collector-item[data-state="online"] .collector-dot { background: var(--green); }
+.collector-grid .collector-item[data-state="online"] { color: var(--text); }
+.collector-grid .collector-item[data-state="error"] .collector-dot { background: var(--danger); }
+.collector-grid .collector-item[data-state="waiting"] .collector-dot { background: var(--warning); }
+.collector-grid .collector-item .collector-name { width: 92px; flex: 0 0 auto; }
+.collector-grid .collector-item .collector-state { margin-left: auto; font-size: 12px; color: var(--muted); }
+.claudecode-session-list li {
+  display: flex; align-items: center; gap: 12px; padding: 10px 14px;
+  border: 1px solid var(--line); border-radius: 10px; background: #0d1211;
+}
+.claudecode-session-list .session-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); flex: 0 0 auto; }
+.claudecode-session-list .session-project { font-size: 14px; }
+.claudecode-session-list .session-state { margin-left: auto; color: var(--muted); font-size: 12px; }
+.claudecode-sessions-card ul code { font-size: 11px; color: var(--muted); }
 .settings-icon {
   -webkit-mask-image: url("/assets/settings.svg");
   mask-image: url("/assets/settings.svg");
@@ -333,6 +366,7 @@ input:checked + .switch-track::after { transform: translateX(18px); background: 
 .bambu-fields { display: grid; gap: 14px; }
 .bambu-fields label { display: grid; gap: 7px; color: var(--muted-strong); font-size: 13px; }
 .bambu-fields input { min-height: 42px; padding: 0 12px; border: 1px solid #35413e; border-radius: 9px; background: #0d1211; color: var(--text); }
+.bambu-fields select { min-height: 42px; padding: 0 12px; border: 1px solid #35413e; border-radius: 9px; background: #0d1211; color: var(--text); font: inherit; cursor: pointer; }
 .bambu-camera-toggle { display: flex; align-items: center; gap: 9px; margin-top: 16px; color: var(--muted-strong); font-size: 13px; }
 .form-actions, .bambu-actions { display: flex; gap: 9px; margin-top: 20px; }
 .bambu-help { margin: 18px 0 0; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; line-height: 1.65; }

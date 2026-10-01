@@ -90,6 +90,13 @@ typedef struct {
     bool bambu_connected;
     bool bambu_commandable;
     bool bambu_camera_available;
+    bool zai_enabled;
+    bool zai_configured;
+    bool zai_connected;
+    bool zai_five_hour_available;
+    bool zai_weekly_available;
+    bool claudecode_enabled;
+    bool claudecode_connected;
     bool dotii_base_idle;
     bool dotii_state_assigned;
     uint32_t display_revision;
@@ -103,6 +110,13 @@ typedef struct {
     int weekly_remaining_percent;
     uint32_t weekly_tokens;
     char five_hour_reset_date[16];
+    int zai_five_hour_remaining_percent;
+    int zai_weekly_remaining_percent;
+    char zai_plan_level[16];
+    char zai_five_hour_reset_date[16];
+    char zai_weekly_reset_date[16];
+    uint8_t claudecode_session_count;
+    time_t claudecode_updated_at;
     char reset_date[16];
     char plan_type[32];
     codex_task_status_t status;
@@ -123,6 +137,7 @@ typedef struct {
     uint32_t custom_image_revision;
     uint32_t custom_image_size;
     bambu_status_t bambu_status;
+    codex_task_status_t claudecode_status;
     dotii_expression_t dotii_expression;
     uint32_t dotii_state_duration_ms;
     uint32_t dotii_state_token;

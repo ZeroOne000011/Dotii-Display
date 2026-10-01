@@ -40,8 +40,9 @@ LV_FONT_DECLARE(ui_font_fixed_20);
 #define COLOR_GREEN 0x42D98C
 #define COLOR_BAMBU 0x00AE42
 #define COLOR_WARNING 0xF2C66D
+#define COLOR_VIOLET 0x9D7BFF
 #define COLOR_DANGER 0xFF766F
-#define PAGE_COUNT 4
+#define PAGE_COUNT 6
 #define TITLE_HEIGHT 30
 #define DISPLAY_ANGLE_DEFAULT_TENTHS 840
 #define DISPLAY_ANGLE_MIN_TENTHS 800
@@ -66,6 +67,8 @@ static lv_obj_t *s_plus_status_pill;
 static lv_obj_t *s_detail;
 static lv_obj_t *s_bambu_main;
 static lv_obj_t *s_bambu_detail;
+static lv_obj_t *s_zai_main;
+static lv_obj_t *s_claudecode_main;
 static lv_obj_t *s_custom;
 static lv_obj_t *s_dotii;
 static lv_obj_t *s_control;
@@ -103,6 +106,20 @@ static lv_obj_t *s_bambu_pause;
 static lv_obj_t *s_bambu_pause_icon;
 static lv_obj_t *s_bambu_stop;
 static lv_obj_t *s_bambu_stop_progress;
+static lv_obj_t *s_time_zai_main;
+static lv_obj_t *s_zai_arc;
+static lv_obj_t *s_zai_percent;
+static lv_obj_t *s_zai_plan;
+static lv_obj_t *s_zai_plan_pill;
+static lv_obj_t *s_zai_reset_day;
+static lv_obj_t *s_zai_reset_time;
+static lv_obj_t *s_zai_weekly;
+static lv_obj_t *s_time_claudecode_main;
+static lv_obj_t *s_claudecode_status_label;
+static lv_obj_t *s_claudecode_pill;
+static lv_obj_t *s_claudecode_pill_label;
+static lv_obj_t *s_claudecode_sessions;
+static lv_obj_t *s_claudecode_activity;
 static lv_obj_t *s_detail_title;
 static lv_obj_t *s_detail_meta;
 static lv_obj_t *s_user_message;
@@ -772,7 +789,9 @@ static bool page_enabled(uint8_t page)
     if (!s_snapshot.valid) return page < 2;
     if (page == 0) return s_snapshot.codex_enabled;
     if (page == 1) return s_snapshot.bambu_enabled;
-    if (page == 2) return s_snapshot.custom_enabled;
+    if (page == 2) return s_snapshot.zai_enabled;
+    if (page == 3) return s_snapshot.claudecode_enabled;
+    if (page == 4) return s_snapshot.custom_enabled;
     return s_snapshot.dotii_enabled;
 }
 
@@ -780,7 +799,9 @@ static lv_obj_t *page_screen(uint8_t page)
 {
     if (page == 0) return s_snapshot.codex_ui_dual_limit ? s_plus_main : s_main;
     if (page == 1) return s_bambu_main;
-    if (page == 2) return s_custom;
+    if (page == 2) return s_zai_main;
+    if (page == 3) return s_claudecode_main;
+    if (page == 4) return s_custom;
     return s_dotii;
 }
 
@@ -796,8 +817,10 @@ static bool screen_enabled(lv_obj_t *screen)
 {
     if (screen == s_main || screen == s_plus_main || screen == s_detail) return page_enabled(0);
     if (screen == s_bambu_main || screen == s_bambu_detail) return page_enabled(1);
-    if (screen == s_custom) return page_enabled(2);
-    if (screen == s_dotii) return page_enabled(3);
+    if (screen == s_zai_main) return page_enabled(2);
+    if (screen == s_claudecode_main) return page_enabled(3);
+    if (screen == s_custom) return page_enabled(4);
+    if (screen == s_dotii) return page_enabled(5);
     return true;
 }
 
@@ -809,7 +832,7 @@ static lv_obj_t *enabled_return_screen(lv_obj_t *screen)
 
 static void update_page_dots(void)
 {
-    static const uint32_t active_colors[PAGE_COUNT] = {COLOR_BLUE, COLOR_BAMBU, COLOR_WARNING, COLOR_CYAN};
+    static const uint32_t active_colors[PAGE_COUNT] = {COLOR_BLUE, COLOR_BAMBU, COLOR_VIOLET, COLOR_ORANGE, COLOR_WARNING, COLOR_CYAN};
     for (uint8_t row = 0; row < PAGE_COUNT; ++row) {
         int total_width = 0;
         uint8_t count = 0;
@@ -1563,6 +1586,137 @@ static void build_bambu(void)
     lv_obj_add_event_cb(s_bambu_stop, bambu_stop_event, LV_EVENT_ALL, NULL);
 }
 
+static void build_zai(void)
+{
+    s_zai_main = lv_obj_create(NULL);
+    set_screen_background(s_zai_main);
+    add_activity_event(s_zai_main);
+    lv_obj_add_event_cb(s_zai_main, swipe_event, LV_EVENT_GESTURE, NULL);
+    lv_obj_t *content = lv_obj_create(s_zai_main);
+    lv_obj_remove_style_all(content);
+    lv_obj_set_size(content, SCREEN_SIZE, SCREEN_SIZE);
+    lv_obj_center(content);
+    lv_obj_remove_flag(content, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(content, LV_OBJ_FLAG_CLICKABLE);
+
+    s_zai_arc = lv_arc_create(content);
+    lv_obj_set_size(s_zai_arc, SCREEN_SIZE, SCREEN_SIZE);
+    lv_obj_center(s_zai_arc);
+    lv_arc_set_range(s_zai_arc, 0, 100);
+    lv_arc_set_value(s_zai_arc, 0);
+    lv_arc_set_bg_angles(s_zai_arc, 140, 400);
+    lv_obj_set_style_arc_width(s_zai_arc, 26, LV_PART_MAIN);
+    lv_obj_set_style_arc_color(s_zai_arc, color(0x120E26), LV_PART_MAIN);
+    lv_obj_set_style_arc_width(s_zai_arc, 26, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(s_zai_arc, color(COLOR_VIOLET), LV_PART_INDICATOR);
+    lv_obj_remove_style(s_zai_arc, NULL, LV_PART_KNOB);
+    lv_obj_remove_flag(s_zai_arc, LV_OBJ_FLAG_CLICKABLE);
+
+    lv_obj_t *title = make_label(content, "Z.ai", &lv_font_montserrat_28, COLOR_TEXT);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 48);
+    s_time_zai_main = make_label(content, "--:--", &lv_font_montserrat_20, COLOR_MUTED);
+    lv_obj_align(s_time_zai_main, LV_ALIGN_TOP_MID, 0, 82);
+
+    lv_obj_t *kicker = make_label(content, "5 小时剩余", &ui_font_detail_20, COLOR_MUTED);
+    lv_obj_align(kicker, LV_ALIGN_CENTER, 0, -82);
+    s_zai_percent = make_label(content, "--", &ui_font_digits_64, COLOR_TEXT);
+    lv_obj_set_style_transform_scale(s_zai_percent, 282, 0);
+    lv_obj_align(s_zai_percent, LV_ALIGN_CENTER, 0, -19);
+
+    s_zai_plan_pill = lv_obj_create(content);
+    lv_obj_set_size(s_zai_plan_pill, 138, 48);
+    lv_obj_set_style_radius(s_zai_plan_pill, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(s_zai_plan_pill, color(COLOR_VIOLET), 0);
+    lv_obj_set_style_bg_opa(s_zai_plan_pill, LV_OPA_20, 0);
+    lv_obj_set_style_border_width(s_zai_plan_pill, 0, 0);
+    lv_obj_remove_flag(s_zai_plan_pill, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(s_zai_plan_pill, LV_OBJ_FLAG_CLICKABLE);
+    s_zai_plan = make_label(s_zai_plan_pill, "--", &ui_font_detail_20, COLOR_VIOLET);
+    lv_obj_set_size(s_zai_plan, 120, 22);
+    lv_obj_set_style_text_align(s_zai_plan, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_center(s_zai_plan);
+    lv_obj_align(s_zai_plan_pill, LV_ALIGN_CENTER, 0, 52);
+
+    lv_obj_t *reset_box = lv_obj_create(content);
+    lv_obj_remove_style_all(reset_box);
+    lv_obj_set_size(reset_box, 132, 56);
+    lv_obj_set_pos(reset_box, 92, 346);
+    lv_obj_remove_flag(reset_box, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t *reset_row = lv_obj_create(reset_box);
+    lv_obj_remove_style_all(reset_row);
+    lv_obj_set_size(reset_row, 132, 25);
+    lv_obj_align(reset_row, LV_ALIGN_TOP_MID, 4, 0);
+    lv_obj_set_layout(reset_row, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(reset_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(reset_row, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(reset_row, 4, 0);
+    lv_obj_remove_flag(reset_row, LV_OBJ_FLAG_SCROLLABLE);
+    s_zai_reset_day = make_label(reset_row, "--", &lv_font_montserrat_22, COLOR_TEXT);
+    s_zai_reset_time = make_label(reset_row, "", &lv_font_montserrat_18, COLOR_TEXT);
+    lv_obj_t *reset_caption = make_label(reset_box, "重置时间", &s_ui_font, COLOR_MUTED);
+    lv_obj_set_style_transform_scale(reset_caption, 282, 0);
+    lv_obj_align(reset_caption, LV_ALIGN_BOTTOM_MID, 0, 1);
+
+    lv_obj_t *state_box = lv_obj_create(content);
+    lv_obj_remove_style_all(state_box);
+    lv_obj_set_size(state_box, 132, 56);
+    lv_obj_set_pos(state_box, 242, 346);
+    lv_obj_remove_flag(state_box, LV_OBJ_FLAG_SCROLLABLE);
+    s_zai_weekly = make_label(state_box, "--", &lv_font_montserrat_22, COLOR_TEXT);
+    lv_obj_set_width(s_zai_weekly, 132);
+    lv_obj_set_style_text_align(s_zai_weekly, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(s_zai_weekly, LV_ALIGN_TOP_MID, 0, 0);
+    lv_obj_t *state_caption = make_label(state_box, "周剩余", &s_ui_font, COLOR_MUTED);
+    lv_obj_set_style_transform_scale(state_caption, 282, 0);
+    lv_obj_align(state_caption, LV_ALIGN_BOTTOM_MID, 0, 1);
+
+    make_page_dots(content, 2);
+}
+
+static void build_claudecode(void)
+{
+    s_claudecode_main = lv_obj_create(NULL);
+    set_screen_background(s_claudecode_main);
+    add_activity_event(s_claudecode_main);
+    lv_obj_add_event_cb(s_claudecode_main, swipe_event, LV_EVENT_GESTURE, NULL);
+    lv_obj_t *content = lv_obj_create(s_claudecode_main);
+    lv_obj_remove_style_all(content);
+    lv_obj_set_size(content, SCREEN_SIZE, SCREEN_SIZE);
+    lv_obj_center(content);
+    lv_obj_remove_flag(content, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(content, LV_OBJ_FLAG_CLICKABLE);
+
+    lv_obj_t *title = make_label(content, "Claude Code", &lv_font_montserrat_28, COLOR_TEXT);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 48);
+    s_time_claudecode_main = make_label(content, "--:--", &lv_font_montserrat_20, COLOR_MUTED);
+    lv_obj_align(s_time_claudecode_main, LV_ALIGN_TOP_MID, 0, 82);
+
+    lv_obj_t *kicker = make_label(content, "任务状态", &ui_font_detail_20, COLOR_MUTED);
+    lv_obj_align(kicker, LV_ALIGN_CENTER, 0, -82);
+    s_claudecode_status_label = make_label(content, "离线", &s_ui_font, COLOR_TEXT);
+    lv_obj_set_style_transform_scale(s_claudecode_status_label, 355, 0);
+    lv_obj_align(s_claudecode_status_label, LV_ALIGN_CENTER, 0, -19);
+
+    s_claudecode_pill = lv_obj_create(content);
+    lv_obj_set_size(s_claudecode_pill, 138, 48);
+    lv_obj_set_style_radius(s_claudecode_pill, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(s_claudecode_pill, color(COLOR_ORANGE), 0);
+    lv_obj_set_style_bg_opa(s_claudecode_pill, LV_OPA_20, 0);
+    lv_obj_set_style_border_width(s_claudecode_pill, 0, 0);
+    lv_obj_remove_flag(s_claudecode_pill, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(s_claudecode_pill, LV_OBJ_FLAG_CLICKABLE);
+    s_claudecode_pill_label = make_label(s_claudecode_pill, "--", &ui_font_detail_20, COLOR_ORANGE);
+    lv_obj_set_size(s_claudecode_pill_label, 120, 22);
+    lv_obj_set_style_text_align(s_claudecode_pill_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_center(s_claudecode_pill_label);
+    lv_obj_align(s_claudecode_pill, LV_ALIGN_CENTER, 0, 52);
+
+    s_claudecode_sessions = make_bambu_metric(content, "会话数", 92);
+    s_claudecode_activity = make_bambu_metric(content, "最近活动", 242);
+
+    make_page_dots(content, 3);
+}
+
 static void build_custom(void)
 {
     s_custom = lv_obj_create(NULL);
@@ -2252,6 +2406,80 @@ static void update_snapshot(const codex_snapshot_t *snapshot)
     if (can_stop) lv_obj_remove_state(s_bambu_stop, LV_STATE_DISABLED);
     else lv_obj_add_state(s_bambu_stop, LV_STATE_DISABLED);
 
+    bool zai_online = snapshot->zai_configured && snapshot->zai_connected;
+    bool zai_available = zai_online && snapshot->zai_five_hour_available;
+    if (zai_available) {
+        lv_label_set_text_fmt(s_zai_percent, "%d%%", snapshot->zai_five_hour_remaining_percent);
+        lv_arc_set_value(s_zai_arc, snapshot->zai_five_hour_remaining_percent);
+        lv_obj_set_style_arc_color(s_zai_arc, color(COLOR_VIOLET), LV_PART_INDICATOR);
+    } else {
+        lv_label_set_text(s_zai_percent, "--");
+        lv_arc_set_value(s_zai_arc, 0);
+        lv_obj_set_style_arc_color(s_zai_arc, color(0x59605E), LV_PART_INDICATOR);
+    }
+    if (snapshot->zai_plan_level[0]) {
+        lv_label_set_text_fmt(s_zai_plan, "%s 套餐", snapshot->zai_plan_level);
+    } else {
+        lv_label_set_text(s_zai_plan,
+                          zai_online ? "已连接" :
+                          snapshot->zai_configured ? "连接中" : "未配置");
+    }
+    if (zai_available && snapshot->zai_five_hour_reset_date[0]) {
+        const char *reset_space = strchr(snapshot->zai_five_hour_reset_date, ' ');
+        if (reset_space != NULL) {
+            lv_label_set_text_fmt(s_zai_reset_day, "%.*s",
+                                  (int)(reset_space - snapshot->zai_five_hour_reset_date),
+                                  snapshot->zai_five_hour_reset_date);
+            lv_label_set_text(s_zai_reset_time, reset_space + 1);
+        } else {
+            lv_label_set_text(s_zai_reset_day, snapshot->zai_five_hour_reset_date);
+            lv_label_set_text(s_zai_reset_time, "");
+        }
+    } else {
+        lv_label_set_text(s_zai_reset_day, "--");
+        lv_label_set_text(s_zai_reset_time, "");
+    }
+    if (snapshot->zai_weekly_available) {
+        lv_label_set_text_fmt(s_zai_weekly, "%d%%", snapshot->zai_weekly_remaining_percent);
+    } else {
+        lv_label_set_text(s_zai_weekly, "--");
+    }
+
+    bool claudecode_online = snapshot->claudecode_connected;
+    uint32_t claudecode_color = COLOR_MUTED;
+    if (claudecode_online) {
+        if (snapshot->claudecode_status == CODEX_STATUS_WORKING ||
+            snapshot->claudecode_status == CODEX_STATUS_COMPLETED) {
+            claudecode_color = COLOR_GREEN;
+        } else if (snapshot->claudecode_status == CODEX_STATUS_WAITING) {
+            claudecode_color = COLOR_WARNING;
+        } else if (snapshot->claudecode_status == CODEX_STATUS_FAILED) {
+            claudecode_color = COLOR_DANGER;
+        } else {
+            claudecode_color = COLOR_ORANGE;
+        }
+    }
+    lv_label_set_text(s_claudecode_status_label,
+                      claudecode_online ? app_state_status_text(snapshot->claudecode_status) : "离线");
+    lv_obj_set_style_text_color(s_claudecode_status_label, color(claudecode_color), 0);
+    if (claudecode_online && snapshot->claudecode_session_count > 0) {
+        lv_label_set_text_fmt(s_claudecode_pill_label, "%u 个会话", snapshot->claudecode_session_count);
+        lv_label_set_text_fmt(s_claudecode_sessions, "%u", snapshot->claudecode_session_count);
+    } else {
+        lv_label_set_text(s_claudecode_pill_label, "等待事件");
+        lv_label_set_text(s_claudecode_sessions, "--");
+    }
+    if (snapshot->claudecode_updated_at > 0) {
+        time_t activity_delta = time(NULL) - snapshot->claudecode_updated_at;
+        if (activity_delta < 0) activity_delta = 0;
+        if (activity_delta < 60) lv_label_set_text(s_claudecode_activity, "<1m");
+        else if (activity_delta < 3600) lv_label_set_text_fmt(s_claudecode_activity, "%dm", (int)(activity_delta / 60));
+        else if (activity_delta < 86400) lv_label_set_text_fmt(s_claudecode_activity, "%dh", (int)(activity_delta / 3600));
+        else lv_label_set_text(s_claudecode_activity, ">1d");
+    } else {
+        lv_label_set_text(s_claudecode_activity, "--");
+    }
+
     const uint8_t *camera = snapshot->bambu_camera_available ?
         connectivity_bambu_camera_data(snapshot->bambu_camera_revision) : NULL;
     if (camera != NULL) {
@@ -2350,6 +2578,8 @@ static void ui_timer(lv_timer_t *timer)
     lv_label_set_text(s_time_detail, clock);
     lv_label_set_text(s_time_bambu_main, clock);
     lv_label_set_text(s_time_bambu_detail, clock);
+    lv_label_set_text(s_time_zai_main, clock);
+    lv_label_set_text(s_time_claudecode_main, clock);
 
     char summary[80];
     connectivity_get_summary(summary, sizeof(summary));
@@ -2392,6 +2622,8 @@ void state_ui_start(QueueHandle_t snapshot_queue)
     build_plus_main();
     build_detail();
     build_bambu();
+    build_zai();
+    build_claudecode();
     build_custom();
     build_dotii();
     build_settings();
@@ -2430,8 +2662,9 @@ void state_ui_button_a_short(void)
         return;
     }
     int current_page = (s_current == s_main || s_current == s_plus_main) ? 0 :
-        s_current == s_bambu_main ? 1 : s_current == s_custom ? 2 :
-        s_current == s_dotii ? 3 : -1;
+        s_current == s_bambu_main ? 1 : s_current == s_zai_main ? 2 :
+        s_current == s_claudecode_main ? 3 : s_current == s_custom ? 4 :
+        s_current == s_dotii ? 5 : -1;
     if (current_page < 0) {
         load_screen(first_enabled_screen(), true);
         return;

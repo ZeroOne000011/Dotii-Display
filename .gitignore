@@ -14,3 +14,4 @@ tools/
 .vscode/
 .venv/
 .DS_Store
+.cache/

@@ -30,7 +30,7 @@ class CodexUiConfigTests(unittest.TestCase):
 
     def test_module_config_migrates_dotii_as_enabled(self) -> None:
         modules = validate_module_config({"codex": True, "bambu": False})
-        self.assertEqual(modules, {"codex": True, "bambu": False, "dotii": True})
+        self.assertEqual(modules, {"codex": True, "bambu": False, "zai": False, "claudecode": False, "dotii": True})
 
     def test_dotii_state_prioritizes_failure_then_active_work(self) -> None:
         failed = dotii_state(
@@ -65,6 +65,57 @@ class CodexUiConfigTests(unittest.TestCase):
         )
         self.assertEqual(state["expression"], "complete")
 
+    def test_dotii_state_covers_claudecode_working(self) -> None:
+        state = dotii_state(
+            {"codex": {"task": {"status": "idle"}}},
+            {},
+            True,
+            default_dotii_config(),
+            claudecode={"connected": True, "status": "working"},
+        )
+        self.assertEqual(state["state"], "claudecode_working")
+        self.assertEqual(state["expression"], "working")
+
+    def test_dotii_state_ignores_seeded_codex_when_module_disabled(self) -> None:
+        """模块关闭时 state.json 里的预览任务不得遮蔽实时模块的状态。"""
+        snapshot = {"modules": {"codex": False},
+                    "codex": {"task": {"status": "working", "preview_data": True}}}
+        state = dotii_state(
+            snapshot, {}, True, default_dotii_config(),
+            claudecode={"connected": True, "status": "completed"},
+        )
+        self.assertEqual(state["state"], "claudecode_completed")
+        self.assertEqual(state["expression"], "complete")
+
+        state = dotii_state(snapshot, {}, True, default_dotii_config(),
+                            claudecode={"connected": True, "status": "working"})
+        self.assertEqual(state["state"], "claudecode_working")
+
+        # 全部模块关闭时回到空闲，而不是 connecting（Codex 关闭不是链路断开）
+        state = dotii_state(snapshot, {}, True, default_dotii_config(),
+                            claudecode={"connected": False})
+        self.assertEqual(state["state"], "idle")
+
+    def test_dotii_state_ignores_claudecode_when_offline(self) -> None:
+        state = dotii_state(
+            {"codex": {"task": {"status": "idle"}}},
+            {},
+            True,
+            default_dotii_config(),
+            claudecode={"connected": False, "status": "working"},
+        )
+        self.assertEqual(state["state"], "idle")
+
+    def test_dotii_state_claudecode_failure_outranks_bambu_fault(self) -> None:
+        state = dotii_state(
+            {"codex": {"task": {"status": "idle"}}},
+            {"configured": True, "connected": True, "status": "fault"},
+            True,
+            default_dotii_config(),
+            claudecode={"connected": True, "status": "failed"},
+        )
+        self.assertEqual(state["state"], "claudecode_failure")
+
     def test_dotii_config_allows_one_animation_to_cover_multiple_states(self) -> None:
         config = default_dotii_config()
         config["animations"]["curious"]["states"].remove("codex_waiting_user")
@@ -79,7 +130,7 @@ class CodexUiConfigTests(unittest.TestCase):
         self.assertFalse(state["state_hold"])
         self.assertEqual(
             validated["animations"]["working"]["states"],
-            ["codex_working", "bambu_printing", "codex_waiting_user"],
+            ["codex_working", "claudecode_working", "bambu_printing", "codex_waiting_user"],
         )
 
     def test_dotii_config_rejects_duplicate_business_states(self) -> None:
@@ -178,7 +229,7 @@ class CodexUiConfigTests(unittest.TestCase):
         self.assertIn("codex_working", migrated["animations"]["working"]["states"])
         self.assertEqual(migrated["animations"]["working"]["state_duration_ms"], 0)
         self.assertEqual(len(migrated["fixed_states"]), 5)
-        self.assertEqual([group["id"] for group in migrated["state_groups"]], ["codex", "bambu"])
+        self.assertEqual([group["id"] for group in migrated["state_groups"]], ["codex", "claudecode", "bambu"])
 
     def test_dotii_state_distinguishes_codex_working_from_bambu_printing(self) -> None:
         config = default_dotii_config()

@@ -449,15 +449,23 @@ static void copy_module_config(cJSON *root, codex_snapshot_t *snapshot)
     snapshot->codex_enabled = true;
     snapshot->bambu_enabled = true;
     snapshot->dotii_enabled = true;
+    /* Older management centers never publish modules.zai; keep the page
+       hidden until the field explicitly enables it. */
+    snapshot->zai_enabled = false;
+    snapshot->claudecode_enabled = false;
     cJSON *modules = cJSON_GetObjectItemCaseSensitive(root, "modules");
     if (!cJSON_IsObject(modules)) return;
 
     cJSON *codex = cJSON_GetObjectItemCaseSensitive(modules, "codex");
     cJSON *bambu = cJSON_GetObjectItemCaseSensitive(modules, "bambu");
     cJSON *dotii = cJSON_GetObjectItemCaseSensitive(modules, "dotii");
+    cJSON *zai = cJSON_GetObjectItemCaseSensitive(modules, "zai");
+    cJSON *claudecode = cJSON_GetObjectItemCaseSensitive(modules, "claudecode");
     if (cJSON_IsBool(codex)) snapshot->codex_enabled = cJSON_IsTrue(codex);
     if (cJSON_IsBool(bambu)) snapshot->bambu_enabled = cJSON_IsTrue(bambu);
     if (cJSON_IsBool(dotii)) snapshot->dotii_enabled = cJSON_IsTrue(dotii);
+    if (cJSON_IsBool(zai)) snapshot->zai_enabled = cJSON_IsTrue(zai);
+    if (cJSON_IsBool(claudecode)) snapshot->claudecode_enabled = cJSON_IsTrue(claudecode);
 }
 
 static uint32_t dotii_state_token_from_string(const char *value)
@@ -639,6 +647,72 @@ static void copy_bambu_status(cJSON *root, codex_snapshot_t *snapshot)
     }
 }
 
+static void copy_zai_status(cJSON *root, codex_snapshot_t *snapshot)
+{
+    snapshot->zai_configured = false;
+    snapshot->zai_connected = false;
+    snapshot->zai_five_hour_available = false;
+    snapshot->zai_weekly_available = false;
+    snapshot->zai_five_hour_remaining_percent = 0;
+    snapshot->zai_weekly_remaining_percent = 0;
+    snapshot->zai_plan_level[0] = '\0';
+    snapshot->zai_five_hour_reset_date[0] = '\0';
+    snapshot->zai_weekly_reset_date[0] = '\0';
+    cJSON *zai = cJSON_GetObjectItemCaseSensitive(root, "zai");
+    if (!cJSON_IsObject(zai)) return;
+
+    snapshot->zai_configured = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(zai, "configured"));
+    snapshot->zai_connected = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(zai, "connected"));
+    snapshot->zai_five_hour_available = cJSON_IsTrue(
+        cJSON_GetObjectItemCaseSensitive(zai, "five_hour_available"));
+    snapshot->zai_weekly_available = cJSON_IsTrue(
+        cJSON_GetObjectItemCaseSensitive(zai, "weekly_available"));
+    copy_json_string(zai, "plan_level", snapshot->zai_plan_level, sizeof(snapshot->zai_plan_level));
+    copy_json_string(zai, "five_hour_reset_date", snapshot->zai_five_hour_reset_date,
+                     sizeof(snapshot->zai_five_hour_reset_date));
+    copy_json_string(zai, "weekly_reset_date", snapshot->zai_weekly_reset_date,
+                     sizeof(snapshot->zai_weekly_reset_date));
+    cJSON *remaining = cJSON_GetObjectItemCaseSensitive(zai, "five_hour_remaining_percent");
+    cJSON *weekly = cJSON_GetObjectItemCaseSensitive(zai, "weekly_remaining_percent");
+    if (cJSON_IsNumber(remaining)) {
+        int value = remaining->valueint;
+        if (value < 0) value = 0;
+        if (value > 100) value = 100;
+        snapshot->zai_five_hour_remaining_percent = value;
+    }
+    if (cJSON_IsNumber(weekly)) {
+        int value = weekly->valueint;
+        if (value < 0) value = 0;
+        if (value > 100) value = 100;
+        snapshot->zai_weekly_remaining_percent = value;
+    }
+}
+
+static void copy_claudecode_status(cJSON *root, codex_snapshot_t *snapshot)
+{
+    snapshot->claudecode_connected = false;
+    snapshot->claudecode_status = CODEX_STATUS_OFFLINE;
+    snapshot->claudecode_session_count = 0;
+    snapshot->claudecode_updated_at = 0;
+    cJSON *claudecode = cJSON_GetObjectItemCaseSensitive(root, "claudecode");
+    if (!cJSON_IsObject(claudecode)) return;
+
+    snapshot->claudecode_connected = cJSON_IsTrue(
+        cJSON_GetObjectItemCaseSensitive(claudecode, "connected"));
+    cJSON *status = cJSON_GetObjectItemCaseSensitive(claudecode, "status");
+    snapshot->claudecode_status = app_state_status_from_string(
+        cJSON_IsString(status) ? status->valuestring : "idle");
+    cJSON *sessions = cJSON_GetObjectItemCaseSensitive(claudecode, "session_count");
+    if (cJSON_IsNumber(sessions)) {
+        int value = sessions->valueint;
+        if (value < 0) value = 0;
+        if (value > 99) value = 99;
+        snapshot->claudecode_session_count = (uint8_t)value;
+    }
+    cJSON *updated = cJSON_GetObjectItemCaseSensitive(claudecode, "updated_at_epoch");
+    snapshot->claudecode_updated_at = cJSON_IsNumber(updated) ? (time_t)updated->valuedouble : 0;
+}
+
 static bool parse_snapshot(const char *json, codex_snapshot_t *snapshot)
 {
     bool ok = false;
@@ -739,6 +813,8 @@ static bool parse_snapshot(const char *json, codex_snapshot_t *snapshot)
     }
     copy_custom_config(root, snapshot);
     copy_bambu_status(root, snapshot);
+    copy_zai_status(root, snapshot);
+    copy_claudecode_status(root, snapshot);
     copy_dotii_state(root, snapshot);
     ok = true;
 
