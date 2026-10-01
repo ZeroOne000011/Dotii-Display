@@ -26,6 +26,7 @@ const state = {
   zaiChecking: false,
   zaiCheck: null,
   claudecodeBusy: false,
+  bluetoothModeTouched: false,
   displayDirty: false,
   displaySaving: false,
   codexUiSaving: false,
@@ -1024,6 +1025,14 @@ function renderBluetooth(bluetooth = {}) {
   const recognized = devices.length > 0 || Boolean(bluetooth.last_address);
 
   const bleLink = state.overview?.ble_link;
+  const modeSelect = byId("bluetooth-mode");
+  if (modeSelect && !state.bluetoothModeTouched) {
+    /* 恢复上次选择：localStorage 记忆优先，其次按推送绑定状态推断。 */
+    const saved = localStorage.getItem("bluetooth-mode");
+    modeSelect.value = saved === "ble" || saved === "wifi"
+      ? saved
+      : (bleLink?.enabled ? "ble" : "wifi");
+  }
   const bleMode = byId("bluetooth-mode")?.value === "ble";
   setText("bluetooth-heading-copy", bleMode
     ? "发现附近设备并绑定蓝牙推送，无需 Wi-Fi 环境。"
@@ -2100,6 +2109,8 @@ byId("ble-link-toggle").addEventListener("click", async () => {
   } catch (error) { showToast(error.message || "操作失败"); }
 });
 byId("bluetooth-mode").addEventListener("change", () => {
+  state.bluetoothModeTouched = true;
+  localStorage.setItem("bluetooth-mode", byId("bluetooth-mode").value);
   const bleMode = byId("bluetooth-mode").value === "ble";
   byId("bluetooth-ssid-row").hidden = bleMode;
   byId("bluetooth-password-row").hidden = bleMode;
