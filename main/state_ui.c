@@ -2155,8 +2155,8 @@ static void build_control(void)
     lv_obj_set_style_pad_column(row, 6, 0);
     s_codex_quick = make_quick_button(row, &ui_icon_openai_36, COLOR_BLUE, NULL);
     s_bambu_quick = make_quick_button(row, &ui_icon_bambu_36, COLOR_BAMBU, NULL);
-    s_zai_quick = make_quick_button(row, NULL, COLOR_VIOLET, "Z");
-    s_claudecode_quick = make_quick_button(row, NULL, COLOR_ORANGE, ">_");
+    s_zai_quick = make_quick_button(row, &ui_icon_zai_36, COLOR_VIOLET, NULL);
+    s_claudecode_quick = make_quick_button(row, &ui_icon_claudecode_36, COLOR_ORANGE, NULL);
     s_custom_quick = make_quick_button(row, NULL, COLOR_WARNING, NULL);
     s_dotii_quick = make_quick_button(row, NULL, COLOR_CYAN, NULL);
     lv_obj_clean(s_dotii_quick);
