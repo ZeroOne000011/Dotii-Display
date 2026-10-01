@@ -2245,11 +2245,12 @@ static void build_settings(void)
 
     /* 蓝牙模式无 Wi-Fi/IP 语境，网络卡片不展示；链路模式切换统一在管理页。 */
     const bool ble_mode = device_config_get()->link_mode == DEVICE_LINK_MODE_BLE;
+    s_settings_bridge = make_setting_card(s_settings_list, "配网模式",
+        ble_mode ? "蓝牙" : "Wi-Fi");
     s_settings_wifi = make_setting_card(s_settings_list, "网络", "未配置");
     if (ble_mode) lv_obj_add_flag(lv_obj_get_parent(s_settings_wifi), LV_OBJ_FLAG_HIDDEN);
     s_settings_ip = make_setting_card(s_settings_list, "设备地址", "IP --");
     if (ble_mode) lv_obj_add_flag(lv_obj_get_parent(s_settings_ip), LV_OBJ_FLAG_HIDDEN);
-    s_settings_bridge = make_setting_card(s_settings_list, "数据源", "未配置");
     char device_info[72];
     snprintf(device_info, sizeof(device_info), "Dotii %s · ESP-IDF %s",
              esp_app_get_description()->version, esp_get_idf_version());
@@ -2763,8 +2764,15 @@ static void ui_timer(lv_timer_t *timer)
     lv_label_set_text(s_settings_wifi, summary);
     connectivity_get_ip(summary, sizeof(summary));
     lv_label_set_text_fmt(s_settings_ip, "IP %s", summary);
-    connectivity_get_bridge_summary(summary, sizeof(summary));
-    lv_label_set_text(s_settings_bridge, summary);
+    (void)summary;
+    {
+        const bool link_ble = device_config_get()->link_mode == DEVICE_LINK_MODE_BLE;
+        const bool link_online = link_ble ? ble_bridge_is_connected()
+                                          : connectivity_is_wifi_connected();
+        lv_label_set_text(s_settings_bridge,
+                          link_ble ? (link_online ? "蓝牙 · 在线" : "蓝牙 · 离线")
+                                   : (link_online ? "Wi-Fi · 在线" : "Wi-Fi · 离线"));
+    }
 
     uint32_t inactive_ms = lv_tick_elaps(s_last_activity);
     if (s_ignore_next_dotii_click && inactive_ms > 1000) {
