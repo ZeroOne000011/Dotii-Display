@@ -136,6 +136,7 @@ static lv_obj_t *s_detail_chat;
 static lv_obj_t *s_settings_list;
 static lv_obj_t *s_detail_footer;
 static lv_obj_t *s_battery_label;
+static lv_obj_t *s_quick_row;
 static lv_obj_t *s_control_link_icon;
 static lv_obj_t *s_control_link_text;
 static lv_obj_t *s_settings_wifi;
@@ -2146,19 +2147,17 @@ static void build_control(void)
     lv_obj_set_style_bg_color(s_brightness_slider, color(0xE9FFF7), LV_PART_KNOB);
     lv_obj_add_event_cb(s_brightness_slider, brightness_changed, LV_EVENT_VALUE_CHANGED, NULL);
 
-    lv_obj_t *row = lv_obj_create(safe);
-    lv_obj_remove_style_all(row);
-    lv_obj_set_size(row, 340, 58);
-    lv_obj_set_pos(row, 9, 160);
-    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_column(row, 6, 0);
-    s_codex_quick = make_quick_button(row, &ui_icon_openai_36, COLOR_BLUE, NULL);
-    s_bambu_quick = make_quick_button(row, &ui_icon_bambu_36, COLOR_BAMBU, NULL);
-    s_zai_quick = make_quick_button(row, &ui_icon_zai_36, COLOR_VIOLET, NULL);
-    s_claudecode_quick = make_quick_button(row, &ui_icon_claudecode_36, COLOR_ORANGE, NULL);
-    s_custom_quick = make_quick_button(row, NULL, COLOR_WARNING, NULL);
-    s_dotii_quick = make_quick_button(row, NULL, COLOR_CYAN, NULL);
+    s_quick_row = lv_obj_create(safe);
+    lv_obj_remove_style_all(s_quick_row);
+    lv_obj_set_size(s_quick_row, 340, 82);
+    lv_obj_set_pos(s_quick_row, 9, 156);
+    lv_obj_remove_flag(s_quick_row, LV_OBJ_FLAG_SCROLLABLE);
+    s_codex_quick = make_quick_button(s_quick_row, &ui_icon_openai_36, COLOR_BLUE, NULL);
+    s_bambu_quick = make_quick_button(s_quick_row, &ui_icon_bambu_36, COLOR_BAMBU, NULL);
+    s_zai_quick = make_quick_button(s_quick_row, &ui_icon_zai_36, COLOR_VIOLET, NULL);
+    s_claudecode_quick = make_quick_button(s_quick_row, &ui_icon_claudecode_36, COLOR_ORANGE, NULL);
+    s_custom_quick = make_quick_button(s_quick_row, NULL, COLOR_WARNING, NULL);
+    s_dotii_quick = make_quick_button(s_quick_row, NULL, COLOR_CYAN, NULL);
     lv_obj_clean(s_dotii_quick);
     make_dotii_part(s_dotii_quick, 8, 14, -8, -1, COLOR_CYAN);
     make_dotii_part(s_dotii_quick, 8, 14, 8, -1, COLOR_CYAN);
@@ -2389,6 +2388,51 @@ static void build_power(void)
     lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_line_space(hint, 6, 0);
     lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -2);
+}
+
+/* 控制中心快捷按钮自适应排布：≤4 个单行 78px（原版布局）；
+   5 个以上两行、每行最多 3 个、70px，每行各自居中。 */
+static void layout_quick_buttons(const codex_snapshot_t *snapshot)
+{
+    lv_obj_t *buttons[] = {s_codex_quick, s_bambu_quick, s_zai_quick,
+                           s_claudecode_quick, s_custom_quick, s_dotii_quick};
+    const bool enabled[] = {snapshot->codex_enabled != false, snapshot->bambu_enabled != false,
+                            snapshot->zai_enabled != false, snapshot->claudecode_enabled != false,
+                            snapshot->custom_enabled != false, snapshot->dotii_enabled != false};
+    uint8_t visible = 0;
+    for (size_t index = 0; index < 6; ++index) {
+        if (enabled[index]) {
+            lv_obj_remove_flag(buttons[index], LV_OBJ_FLAG_HIDDEN);
+            visible++;
+        } else {
+            lv_obj_add_flag(buttons[index], LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+    const bool grid = visible > 4;
+    const int32_t size = grid ? 70 : 78;
+    const int32_t gap = grid ? 14 : 9;
+    uint8_t first_row = grid ? (visible > 3 ? 3 : visible) : visible;
+    if (first_row == 0) first_row = 1;
+    uint8_t placed = 0;
+    int32_t y = 0;
+    for (size_t index = 0; index < 6; ++index) {
+        if (!enabled[index]) continue;
+        const uint8_t in_row = placed < first_row ? placed : placed - first_row;
+        const uint8_t row_count = placed < first_row ? first_row : (uint8_t)(visible - first_row);
+        const int32_t row_width = row_count * size + (row_count - 1) * (int32_t)gap;
+        const int32_t offset_x = (340 - row_width) / 2;
+        if (placed == first_row) y = size + gap;
+        lv_obj_set_size(buttons[index], size, size);
+        lv_obj_set_pos(buttons[index], offset_x + in_row * (size + gap), y);
+        placed++;
+    }
+    /* 两行布局时收窄行高并上移，为链路/电量行让出空间。 */
+    lv_obj_set_size(s_quick_row, 340, grid ? size * 2 + gap : 82);
+    lv_obj_set_pos(s_quick_row, 9, grid ? 138 : 156);
+    if (s_control_link_icon != NULL) {
+        lv_obj_t *link_parent = lv_obj_get_parent(s_control_link_icon);
+        lv_obj_set_pos(link_parent, 9, grid ? size * 2 + gap + 146 : 250);
+    }
 }
 
 static void update_snapshot(const codex_snapshot_t *snapshot)
@@ -2727,18 +2771,7 @@ static void update_snapshot(const codex_snapshot_t *snapshot)
         lv_obj_remove_flag(s_custom_body, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(s_custom_footer, LV_OBJ_FLAG_HIDDEN);
     }
-    if (snapshot->codex_enabled) lv_obj_remove_flag(s_codex_quick, LV_OBJ_FLAG_HIDDEN);
-    else lv_obj_add_flag(s_codex_quick, LV_OBJ_FLAG_HIDDEN);
-    if (snapshot->bambu_enabled) lv_obj_remove_flag(s_bambu_quick, LV_OBJ_FLAG_HIDDEN);
-    else lv_obj_add_flag(s_bambu_quick, LV_OBJ_FLAG_HIDDEN);
-    if (snapshot->zai_enabled) lv_obj_remove_flag(s_zai_quick, LV_OBJ_FLAG_HIDDEN);
-    else lv_obj_add_flag(s_zai_quick, LV_OBJ_FLAG_HIDDEN);
-    if (snapshot->claudecode_enabled) lv_obj_remove_flag(s_claudecode_quick, LV_OBJ_FLAG_HIDDEN);
-    else lv_obj_add_flag(s_claudecode_quick, LV_OBJ_FLAG_HIDDEN);
-    if (snapshot->custom_enabled) lv_obj_remove_flag(s_custom_quick, LV_OBJ_FLAG_HIDDEN);
-    else lv_obj_add_flag(s_custom_quick, LV_OBJ_FLAG_HIDDEN);
-    if (snapshot->dotii_enabled) lv_obj_remove_flag(s_dotii_quick, LV_OBJ_FLAG_HIDDEN);
-    else lv_obj_add_flag(s_dotii_quick, LV_OBJ_FLAG_HIDDEN);
+    layout_quick_buttons(snapshot);
     render_dotii_expression();
     update_page_dots();
 
