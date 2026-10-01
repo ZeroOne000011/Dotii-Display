@@ -117,6 +117,11 @@ static lv_obj_t *s_zai_reset;
 static lv_obj_t *s_zai_weekly_reset;
 static lv_obj_t *s_time_claudecode_main;
 static lv_obj_t *s_claudecode_status_label;
+static lv_obj_t *s_claudecode_detail;
+static lv_obj_t *s_claudecode_detail_dots[CLAUDECODE_SESSION_MAX];
+static lv_obj_t *s_claudecode_detail_projects[CLAUDECODE_SESSION_MAX];
+static lv_obj_t *s_claudecode_detail_states[CLAUDECODE_SESSION_MAX];
+static lv_obj_t *s_claudecode_detail_times[CLAUDECODE_SESSION_MAX];
 static lv_obj_t *s_claudecode_pill;
 static lv_obj_t *s_claudecode_pill_label;
 static lv_obj_t *s_claudecode_sessions;
@@ -425,8 +430,30 @@ static void return_from_current(void)
 {
     if (s_current == s_detail) load_screen(enabled_return_screen(page_screen(0)), false);
     else if (s_current == s_bambu_detail) load_screen(enabled_return_screen(s_bambu_main), false);
+    else if (s_current == s_claudecode_detail) load_screen(enabled_return_screen(s_claudecode_main), false);
     else if (s_current == s_settings) load_screen(first_enabled_screen(), false);
     else if (s_current == s_power) load_screen(enabled_return_screen(s_before_power), false);
+}
+
+static int main_page_index(lv_obj_t *screen);
+static void goto_page(int delta);
+
+/* 滑动抬手时 LVGL 仍会派发 CLICKED（页面不可滚动，滑动不产生 scroll 状态）。
+   记录最近一次手势时间，其后的短暂点击视为滑动的一部分忽略。 */
+static uint32_t s_last_gesture_at = 0;
+
+static void detail_clicked(lv_event_t *event)
+{
+    if (!s_screen_on || s_screen_saver_active) return;
+    if (s_last_gesture_at != 0 && lv_tick_elaps(s_last_gesture_at) < 350) return;
+    lv_obj_t *target = (lv_obj_t *)lv_event_get_user_data(event);
+    if (target == NULL) return;
+    if (target == s_detail) {
+        s_detail_task_index = 0;
+        s_detail_thread_id[0] = '\0';
+        render_codex_detail();
+    }
+    load_screen(target, true);
 }
 
 static void swipe_event(lv_event_t *event)
@@ -435,6 +462,7 @@ static void swipe_event(lv_event_t *event)
     if (s_wake_touch_in_progress) return;
     lv_indev_t *input = lv_indev_active();
     if (input == NULL) return;
+    s_last_gesture_at = lv_tick_get();
 
     lv_dir_t direction = lv_indev_get_gesture_dir(input);
     if (s_current == s_control && direction == LV_DIR_TOP) {
@@ -447,11 +475,6 @@ static void swipe_event(lv_event_t *event)
         /* One upward swipe advances one viewport step. */
     } else if (direction == LV_DIR_BOTTOM && page_scroll_current(false)) {
         /* One downward swipe returns one viewport step. */
-    } else if ((s_current == s_main || s_current == s_plus_main) && direction == LV_DIR_LEFT) {
-        s_detail_task_index = 0;
-        s_detail_thread_id[0] = '\0';
-        render_codex_detail();
-        load_screen(s_detail, true);
     } else if (s_current == s_detail && direction == LV_DIR_LEFT) {
         if (s_detail_task_index + 1 < s_detail_task_count) {
             bsp_display_transform_set_next_sweep(BSP_DISPLAY_SWEEP_LEFT);
@@ -468,8 +491,11 @@ static void swipe_event(lv_event_t *event)
         } else {
             return_from_current();
         }
-    } else if (s_current == s_bambu_main && direction == LV_DIR_LEFT) {
-        load_screen(s_bambu_detail, true);
+    } else if (main_page_index(s_current) >= 0 && direction == LV_DIR_LEFT) {
+        /* 主页面层：左滑下一页、右滑上一页（详情进入走点按）。 */
+        goto_page(1);
+    } else if (main_page_index(s_current) >= 0 && direction == LV_DIR_RIGHT) {
+        goto_page(-1);
     } else if (direction == LV_DIR_RIGHT) {
         return_from_current();
     }
@@ -819,7 +845,7 @@ static bool screen_enabled(lv_obj_t *screen)
     if (screen == s_main || screen == s_plus_main || screen == s_detail) return page_enabled(0);
     if (screen == s_bambu_main || screen == s_bambu_detail) return page_enabled(1);
     if (screen == s_zai_main) return page_enabled(2);
-    if (screen == s_claudecode_main) return page_enabled(3);
+    if (screen == s_claudecode_main || screen == s_claudecode_detail) return page_enabled(3);
     if (screen == s_custom) return page_enabled(4);
     if (screen == s_dotii) return page_enabled(5);
     return true;
@@ -1379,6 +1405,10 @@ static void build_detail(void)
     lv_obj_set_style_pad_top(s_detail_footer, 2, 0);
     lv_obj_align(s_detail_footer, LV_ALIGN_BOTTOM_MID, 0, -14);
     register_page_scroll_target(s_detail, s_detail_chat);
+
+    /* 点按 Codex 主页进入任务详情（左右滑动已分配给翻页）。 */
+    lv_obj_add_event_cb(s_main, detail_clicked, LV_EVENT_CLICKED, s_detail);
+    lv_obj_add_event_cb(s_plus_main, detail_clicked, LV_EVENT_CLICKED, s_detail);
 }
 
 static void bambu_pause_event(lv_event_t *event)
@@ -1585,6 +1615,9 @@ static void build_bambu(void)
     lv_obj_center(stop_icon);
     lv_obj_move_foreground(stop_icon);
     lv_obj_add_event_cb(s_bambu_stop, bambu_stop_event, LV_EVENT_ALL, NULL);
+
+    /* 点按主页进入打印详情（左右滑动已分配给翻页）。 */
+    lv_obj_add_event_cb(s_bambu_main, detail_clicked, LV_EVENT_CLICKED, s_bambu_detail);
 }
 
 static void build_zai(void)
@@ -1710,6 +1743,45 @@ static void build_claudecode(void)
     s_claudecode_activity = make_bambu_metric(content, "最近活动", 242);
 
     make_page_dots(content, 3);
+}
+
+static void build_claudecode_detail(void)
+{
+    s_claudecode_detail = lv_obj_create(NULL);
+    set_screen_background(s_claudecode_detail);
+    add_activity_event(s_claudecode_detail);
+    lv_obj_add_event_cb(s_claudecode_detail, swipe_event, LV_EVENT_GESTURE, NULL);
+    lv_obj_t *safe = make_safe(s_claudecode_detail);
+    make_centered_title(s_claudecode_detail, "会话详情", &s_ui_font, 336, 256, 1, 50);
+
+    for (uint8_t index = 0; index < CLAUDECODE_SESSION_MAX; ++index) {
+        lv_obj_t *row = lv_obj_create(safe);
+        lv_obj_remove_style_all(row);
+        lv_obj_set_size(row, 340, 56);
+        lv_obj_align(row, LV_ALIGN_TOP_MID, 0, 46 + index * 68);
+        lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+
+        s_claudecode_detail_dots[index] = lv_obj_create(row);
+        lv_obj_remove_style_all(s_claudecode_detail_dots[index]);
+        lv_obj_set_size(s_claudecode_detail_dots[index], 14, 14);
+        lv_obj_set_style_radius(s_claudecode_detail_dots[index], LV_RADIUS_CIRCLE, 0);
+        lv_obj_set_style_bg_color(s_claudecode_detail_dots[index], color(COLOR_ORANGE), 0);
+        lv_obj_set_style_bg_opa(s_claudecode_detail_dots[index], LV_OPA_COVER, 0);
+        lv_obj_align(s_claudecode_detail_dots[index], LV_ALIGN_LEFT_MID, 8, 0);
+
+        s_claudecode_detail_projects[index] = make_label(row, "--", &lv_font_montserrat_18, COLOR_TEXT);
+        lv_obj_align(s_claudecode_detail_projects[index], LV_ALIGN_LEFT_MID, 32, -8);
+
+        s_claudecode_detail_states[index] = make_label(row, "--", &s_ui_font, COLOR_MUTED);
+        lv_obj_set_style_transform_scale(s_claudecode_detail_states[index], 282, 0);
+        lv_obj_align(s_claudecode_detail_states[index], LV_ALIGN_LEFT_MID, 34, 12);
+
+        s_claudecode_detail_times[index] = make_label(row, "--", &lv_font_montserrat_16, COLOR_MUTED);
+        lv_obj_align(s_claudecode_detail_times[index], LV_ALIGN_RIGHT_MID, -10, 0);
+    }
+
+    /* 点按主页进入详情（左右滑动已分配给翻页）。 */
+    lv_obj_add_event_cb(s_claudecode_main, detail_clicked, LV_EVENT_CLICKED, s_claudecode_detail);
 }
 
 static void build_custom(void)
@@ -2470,6 +2542,36 @@ static void update_snapshot(const codex_snapshot_t *snapshot)
         lv_label_set_text(s_claudecode_activity, "--");
     }
 
+    for (uint8_t index = 0; index < CLAUDECODE_SESSION_MAX; ++index) {
+        const claudecode_session_t *session = &snapshot->claudecode_sessions[index];
+        bool present = claudecode_online && snapshot->claudecode_session_count > 0 &&
+                       index < snapshot->claudecode_session_count;
+        uint32_t dot_color = COLOR_MUTED;
+        if (present) {
+            if (session->status == CODEX_STATUS_WORKING ||
+                session->status == CODEX_STATUS_COMPLETED) dot_color = COLOR_GREEN;
+            else if (session->status == CODEX_STATUS_WAITING) dot_color = COLOR_WARNING;
+            else if (session->status == CODEX_STATUS_FAILED) dot_color = COLOR_DANGER;
+        }
+        lv_obj_set_style_bg_color(s_claudecode_detail_dots[index], color(dot_color), 0);
+        lv_obj_set_style_bg_opa(s_claudecode_detail_dots[index],
+                                present ? LV_OPA_COVER : LV_OPA_20, 0);
+        lv_label_set_text(s_claudecode_detail_projects[index],
+                          present && session->project[0] ? session->project : "--");
+        lv_label_set_text(s_claudecode_detail_states[index],
+                          present ? app_state_status_text(session->status) : "--");
+        if (present && session->updated_at > 0) {
+            time_t session_delta = time(NULL) - session->updated_at;
+            if (session_delta < 0) session_delta = 0;
+            if (session_delta < 60) lv_label_set_text(s_claudecode_detail_times[index], "<1m");
+            else if (session_delta < 3600) lv_label_set_text_fmt(s_claudecode_detail_times[index], "%dm", (int)(session_delta / 60));
+            else if (session_delta < 86400) lv_label_set_text_fmt(s_claudecode_detail_times[index], "%dh", (int)(session_delta / 3600));
+            else lv_label_set_text(s_claudecode_detail_times[index], ">1d");
+        } else {
+            lv_label_set_text(s_claudecode_detail_times[index], "--");
+        }
+    }
+
     const uint8_t *camera = snapshot->bambu_camera_available ?
         connectivity_bambu_camera_data(snapshot->bambu_camera_revision) : NULL;
     if (camera != NULL) {
@@ -2614,6 +2716,7 @@ void state_ui_start(QueueHandle_t snapshot_queue)
     build_bambu();
     build_zai();
     build_claudecode();
+    build_claudecode_detail();
     build_custom();
     build_dotii();
     build_settings();
@@ -2630,6 +2733,31 @@ void state_ui_start(QueueHandle_t snapshot_queue)
     lv_timer_create(ui_timer, 1000, NULL);
     /* The compact geometric character uses eight 100 ms phases. */
     lv_timer_create(dotii_timer, 100, NULL);
+}
+
+static int main_page_index(lv_obj_t *screen)
+{
+    for (uint8_t page = 0; page < PAGE_COUNT; ++page) {
+        if (screen == page_screen(page)) return (int)page;
+    }
+    return -1;
+}
+
+static void goto_page(int delta)
+{
+    int current_page = main_page_index(s_current);
+    if (current_page < 0) {
+        load_screen(first_enabled_screen(), true);
+        return;
+    }
+    for (uint8_t offset = 1; offset <= PAGE_COUNT; ++offset) {
+        int step = ((int)current_page + (delta > 0 ? (int)offset : -(int)offset));
+        uint8_t next = (uint8_t)((step % (int)PAGE_COUNT + (int)PAGE_COUNT) % (int)PAGE_COUNT);
+        if (page_enabled(next)) {
+            load_screen(page_screen(next), true);
+            return;
+        }
+    }
 }
 
 void state_ui_button_a_short(void)
@@ -2651,21 +2779,7 @@ void state_ui_button_a_short(void)
         load_screen(first_enabled_screen(), false);
         return;
     }
-    int current_page = (s_current == s_main || s_current == s_plus_main) ? 0 :
-        s_current == s_bambu_main ? 1 : s_current == s_zai_main ? 2 :
-        s_current == s_claudecode_main ? 3 : s_current == s_custom ? 4 :
-        s_current == s_dotii ? 5 : -1;
-    if (current_page < 0) {
-        load_screen(first_enabled_screen(), true);
-        return;
-    }
-    for (uint8_t offset = 1; offset <= PAGE_COUNT; ++offset) {
-        uint8_t next = (current_page + offset) % PAGE_COUNT;
-        if (page_enabled(next)) {
-            load_screen(page_screen(next), true);
-            return;
-        }
-    }
+    goto_page(1);
 }
 
 void state_ui_button_a_long(void)

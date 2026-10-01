@@ -694,6 +694,7 @@ static void copy_claudecode_status(cJSON *root, codex_snapshot_t *snapshot)
     snapshot->claudecode_status = CODEX_STATUS_OFFLINE;
     snapshot->claudecode_session_count = 0;
     snapshot->claudecode_updated_at = 0;
+    memset(snapshot->claudecode_sessions, 0, sizeof(snapshot->claudecode_sessions));
     cJSON *claudecode = cJSON_GetObjectItemCaseSensitive(root, "claudecode");
     if (!cJSON_IsObject(claudecode)) return;
 
@@ -711,6 +712,23 @@ static void copy_claudecode_status(cJSON *root, codex_snapshot_t *snapshot)
     }
     cJSON *updated = cJSON_GetObjectItemCaseSensitive(claudecode, "updated_at_epoch");
     snapshot->claudecode_updated_at = cJSON_IsNumber(updated) ? (time_t)updated->valuedouble : 0;
+
+    cJSON *session_list = cJSON_GetObjectItemCaseSensitive(claudecode, "sessions");
+    if (cJSON_IsArray(session_list)) {
+        uint8_t index = 0;
+        cJSON *item = NULL;
+        cJSON_ArrayForEach(item, session_list) {
+            if (!cJSON_IsObject(item) || index >= CLAUDECODE_SESSION_MAX) break;
+            claudecode_session_t *session = &snapshot->claudecode_sessions[index];
+            cJSON *item_status = cJSON_GetObjectItemCaseSensitive(item, "status");
+            session->status = app_state_status_from_string(
+                cJSON_IsString(item_status) ? item_status->valuestring : "idle");
+            copy_json_string(item, "project", session->project, sizeof(session->project));
+            cJSON *item_updated = cJSON_GetObjectItemCaseSensitive(item, "updated_at_epoch");
+            session->updated_at = cJSON_IsNumber(item_updated) ? (time_t)item_updated->valuedouble : 0;
+            index++;
+        }
+    }
 }
 
 static bool parse_snapshot(const char *json, codex_snapshot_t *snapshot)

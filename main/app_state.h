@@ -55,6 +55,7 @@ typedef enum {
 } display_screen_off_page_t;
 
 #define CODEX_TASK_DETAIL_MAX 6
+#define CLAUDECODE_SESSION_MAX 4
 
 typedef struct {
     codex_task_status_t status;
@@ -68,6 +69,12 @@ typedef struct {
     time_t started_at;
     time_t updated_at;
 } codex_task_detail_t;
+
+typedef struct {
+    codex_task_status_t status;
+    char project[48];
+    time_t updated_at;
+} claudecode_session_t;
 
 typedef struct {
     bool valid;
@@ -117,6 +124,7 @@ typedef struct {
     char zai_weekly_reset_date[16];
     uint8_t claudecode_session_count;
     time_t claudecode_updated_at;
+    claudecode_session_t claudecode_sessions[CLAUDECODE_SESSION_MAX];
     char reset_date[16];
     char plan_type[32];
     codex_task_status_t status;
