@@ -2778,6 +2778,14 @@ static void ui_timer(lv_timer_t *timer)
     if (s_ignore_next_dotii_click && inactive_ms > 1000) {
         s_ignore_next_dotii_click = false;
     }
+    /* 自动回表情页：开关开启且表情页可用时，其他页面 30 秒无交互自动切回。
+       仅对页面循环成员及其详情页生效（设置/控制中心/熄屏流程不打断）。 */
+    if (s_screen_on && !s_screen_saver_active && s_snapshot.dotii_return_enabled &&
+        s_snapshot.dotii_enabled && inactive_ms >= 30000U &&
+        s_current != s_dotii && s_current != s_settings &&
+        s_current != s_control && s_current != s_power) {
+        load_screen(s_dotii, true);
+    }
     const uint32_t active_screen_off_timeout = s_external_power ?
         s_charging_screen_off_timeout_seconds : s_screen_off_timeout_seconds;
     const uint32_t active_sleep_timeout = s_external_power ?

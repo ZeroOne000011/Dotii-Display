@@ -486,6 +486,7 @@ def validate_module_config(payload: Any) -> dict[str, bool]:
 def default_dotii_config() -> dict[str, Any]:
     return {
         "revision": 0,
+        "return_to_dotii": False,
         "animations": {
             expression_id: {
                 "states": list(DOTII_DEFAULT_BUSINESS_ASSIGNMENTS.get(expression_id, ())),
@@ -583,8 +584,12 @@ def validate_dotii_config(payload: Any) -> dict[str, Any]:
             "state_duration_ms": state_duration_ms,
         }
 
+    return_to_dotii = payload.get("return_to_dotii", False)
+    if not isinstance(return_to_dotii, bool):
+        raise ValueError("dotii.return_to_dotii must be a boolean")
     return {
         "revision": _non_negative_int(payload.get("revision", 0), "dotii.revision"),
+        "return_to_dotii": return_to_dotii,
         "animations": validated_animations,
         "available_states": defaults["available_states"],
         "state_groups": defaults["state_groups"],
@@ -680,6 +685,7 @@ def dotii_state(snapshot: dict[str, Any], bambu: dict[str, Any], enabled: bool,
             "long_idle": local_state("long_idle"),
         },
         "config_revision": config["revision"],
+        "return_to_dotii": bool(config.get("return_to_dotii", False)),
         "available_expressions": list(DOTII_EXPRESSION_IDS),
     }
 
@@ -1568,7 +1574,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
             try:
                 payload = self._read_admin_action()
                 current = self.bridge.dotii.read()
-                candidate = {**payload, "revision": current["revision"] + 1}
+                candidate = {**current, **payload, "revision": current["revision"] + 1}
                 config = self.bridge.dotii.write(candidate)
                 self._send_json(HTTPStatus.OK, {"ok": True, "dotii_config": config})
             except (OSError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as error:

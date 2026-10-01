@@ -278,6 +278,32 @@ function renderDotiiConfigEditor() {
   ]));
   list.replaceChildren();
 
+  /* 自动返回表情页开关：其他页面 30 秒无交互自动切回 Dotii。 */
+  const returnRow = document.createElement("article");
+  returnRow.className = "dotii-fixed-row";
+  const returnHeading = document.createElement("div");
+  returnHeading.className = "dotii-fixed-heading";
+  const returnTitle = document.createElement("strong");
+  returnTitle.textContent = "自动返回表情页";
+  const returnSwitch = document.createElement("label");
+  returnSwitch.className = "module-switch";
+  const returnInput = document.createElement("input");
+  returnInput.type = "checkbox";
+  returnInput.checked = state.dotiiConfig.return_to_dotii === true;
+  returnInput.addEventListener("change", () => {
+    state.dotiiConfig.return_to_dotii = returnInput.checked;
+    markDotiiConfigDirty();
+  });
+  const returnTrack = document.createElement("span");
+  returnTrack.className = "switch-track";
+  const returnThumb = document.createElement("span");
+  returnThumb.className = "switch-thumb";
+  returnTrack.append(returnThumb);
+  returnSwitch.append(document.createTextNode("其他页面 30 秒无操作自动切回"), returnInput, returnTrack);
+  returnHeading.append(returnTitle, returnSwitch);
+  returnRow.append(returnHeading);
+  list.append(returnRow);
+
   const fixedRow = document.createElement("article");
   fixedRow.className = "dotii-fixed-row";
   const fixedHeading = document.createElement("div");
@@ -431,7 +457,10 @@ async function saveDotiiConfig(event) {
     const response = await fetch("/api/v1/admin/dotii", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ animations: state.dotiiConfig.animations }),
+      body: JSON.stringify({
+        animations: state.dotiiConfig.animations,
+        return_to_dotii: state.dotiiConfig.return_to_dotii === true,
+      }),
     });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "动画设置保存失败");

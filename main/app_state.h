@@ -106,6 +106,7 @@ typedef struct {
     bool claudecode_connected;
     bool dotii_base_idle;
     bool dotii_state_assigned;
+    bool dotii_return_enabled;
     uint32_t display_revision;
     int16_t docked_rotation_tenths;
     uint32_t screen_off_timeout_seconds;

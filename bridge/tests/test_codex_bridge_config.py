@@ -65,6 +65,19 @@ class CodexUiConfigTests(unittest.TestCase):
         )
         self.assertEqual(state["expression"], "complete")
 
+    def test_return_to_dotii_flag_validates_and_flows_to_state(self) -> None:
+        base = default_dotii_config()
+        base["return_to_dotii"] = True
+        config = validate_dotii_config(base)
+        self.assertTrue(config["return_to_dotii"])
+        self.assertFalse(validate_dotii_config(default_dotii_config())["return_to_dotii"])
+        broken = default_dotii_config()
+        broken["return_to_dotii"] = "yes"
+        with self.assertRaises(ValueError):
+            validate_dotii_config(broken)
+        state = dotii_state({"codex": {"task": {"status": "idle"}}}, {}, True, config)
+        self.assertTrue(state["return_to_dotii"])
+
     def test_dotii_state_covers_claudecode_working(self) -> None:
         state = dotii_state(
             {"codex": {"task": {"status": "idle"}}},

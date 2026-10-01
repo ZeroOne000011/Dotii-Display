@@ -142,6 +142,7 @@ void app_state_make_preview(codex_snapshot_t *snapshot)
     snapshot->bambu_status = BAMBU_STATUS_PRINTING;
     snapshot->dotii_expression = DOTII_EXPRESSION_WORKING;
     snapshot->dotii_state_assigned = true;
+    snapshot->dotii_return_enabled = true;
     snapshot->dotii_state_duration_ms = 0;
     snapshot->dotii_state_token = 1;
     snapshot->dotii_touch_expression = DOTII_EXPRESSION_TOUCH_RESPONSE;

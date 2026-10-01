@@ -514,6 +514,8 @@ static void copy_dotii_state(cJSON *root, codex_snapshot_t *snapshot)
     }
     cJSON *assigned = cJSON_GetObjectItemCaseSensitive(dotii, "state_assigned");
     if (cJSON_IsBool(assigned)) snapshot->dotii_state_assigned = cJSON_IsTrue(assigned);
+    snapshot->dotii_return_enabled = cJSON_IsTrue(
+        cJSON_GetObjectItemCaseSensitive(dotii, "return_to_dotii"));
     if (!snapshot->dotii_state_assigned) {
         snapshot->dotii_expression = DOTII_EXPRESSION_IDLE_BREATH;
         snapshot->dotii_base_idle = true;
