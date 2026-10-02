@@ -143,3 +143,19 @@ Windows 日志位于 `%LOCALAPPDATA%\StateDisplay\bridge.log`，macOS 日志位�
 - [macOS 开发指南](docs/development/macos.md)：macOS 菜单栏宿主、CoreBluetooth、串口、签名、公证与 DMG 构建。
 
 平台共用固件、后台业务、管理网页和设备协议。平台差异应保留在对应适配器、宿主与打包目录中，不应复制共用业务代码。
+
+## 社区贡献与扩展
+
+感谢社区开发者为 Dotii 提供功能扩展与改进。本节列出的实现由贡献者提供；是否已合并及验证范围会单独说明，未合并的功能不属于本项目当前发布版本。
+
+### Z.ai 用量与 Claude Code 工作状态模块
+
+由 [@wfzylcl878-creator](https://github.com/wfzylcl878-creator) 提交，扩展内容包括：
+
+- **Z.ai 用量**：显示 GLM Coding Plan 的 5 小时与周窗口剩余额度、套餐档位和重置时间。
+- **Claude Code 工作状态**：通过 hooks 事件显示工作中、完成、等待用户和失败等状态，并支持圆屏页面与 Dotii 表情联动。
+- **相关改进**：包含模块状态显示、代理 fake-ip 地址过滤及设置页数据采集状态展示等修复。
+
+**合并与验证状态**：该贡献尚未合并到本项目。维护者目前缺少独立验证条件，暂不合并，仅在此展示并提供参考链接。贡献者在 PR 中报告已完成 macOS 源码测试、固件构建和真机验证，同时明确说明 Windows 尚未实测；上述结果尚未经过维护者独立核验。
+
+相关链接：[PR #1：新增 Z.ai 用量与 Claude Code 工作状态模块](https://github.com/ZeroOne000011/Dotii-Display/pull/1) · [贡献者仓库](https://github.com/wfzylcl878-creator/Dotii-Display) · [PR 对应实现版本](https://github.com/wfzylcl878-creator/Dotii-Display/tree/529d962aefd3747fc671c16152a1a4df79ec12cb)
