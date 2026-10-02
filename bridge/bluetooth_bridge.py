@@ -774,7 +774,9 @@ class BleLinkService:
                     for packet in self._ble_link.snapshot_packets(payload, sequence):
                         await client.write_gatt_char(SNAPSHOT_UUID, packet, response=True)
                     with self._lock:
-                        self._revision = content_revision
+                        # 上报传输序号（设备持有的版本，单调递增）；
+                        # 内容 CRC 只是节流的幂等判据，展示出来不单调。
+                        self._revision = sequence
                         import time as _time
                         self._pushed_at = _time.time()
                 try:
