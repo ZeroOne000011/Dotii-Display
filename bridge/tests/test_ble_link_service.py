@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -117,7 +118,9 @@ class BleLinkServiceTests(unittest.TestCase):
             self.assertEqual(assembler.payload, payload.encode("utf-8"))
             snapshot = service.snapshot()
             self.assertTrue(snapshot["connected"])
-            self.assertEqual(snapshot["revision"], ble_link.payload_revision(payload.encode()))
+            # revision 上报的是传输序号（时间戳起步、每次推送 +1，单调递增），
+            # 内容 CRC 只作节流判据不出现在状态里。
+            self.assertGreaterEqual(snapshot["revision"], int(time.time()) - 60)
 
     def test_user_pause_stops_and_resume_reconnects(self) -> None:
         with tempfile.TemporaryDirectory(dir=BRIDGE.parent / ".codx") as temporary:

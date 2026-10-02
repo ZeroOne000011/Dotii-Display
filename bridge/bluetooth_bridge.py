@@ -590,13 +590,16 @@ class BleLinkService:
     """
 
     def __init__(self, bluetooth: "BluetoothBridge", runtime_folder: Path,
-                 snapshot_provider: Callable[[], str]) -> None:
+                 snapshot_provider: Callable[[], str],
+                 on_decision: "Callable[[str, bool], bool] | None" = None) -> None:
         import ble_link
 
         self._ble_link = ble_link
         self._bluetooth = bluetooth
         self._runtime_folder = runtime_folder
         self._snapshot_provider = snapshot_provider
+        # 设备经 SYNC 上行的权限决策（Dotii 屏上批准/拒绝 Claude Code 请求）。
+        self._on_decision = on_decision
         self._config_path = runtime_folder / BLE_LINK_CONFIG_NAME
         self._stop = threading.Event()
         self._wake = threading.Event()
@@ -735,8 +738,16 @@ class BleLinkService:
                 notice = json.loads(bytes(data).decode("utf-8"))
             except (UnicodeDecodeError, json.JSONDecodeError):
                 return
-            if isinstance(notice, dict) and notice.get("resend"):
+            if not isinstance(notice, dict):
+                return
+            if notice.get("resend"):
                 resend.set()
+            decision = notice.get("decision")
+            if isinstance(decision, dict) and self._on_decision is not None:
+                request_id = decision.get("id")
+                allow = decision.get("allow")
+                if isinstance(request_id, str) and isinstance(allow, bool):
+                    self._on_decision(request_id, allow)
 
         async with client_class(
             target,

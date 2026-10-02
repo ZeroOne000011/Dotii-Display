@@ -76,6 +76,11 @@ typedef struct {
     time_t updated_at;
 } claudecode_session_t;
 
+#define CLAUDECODE_PERM_ID_MAX 16
+#define CLAUDECODE_PERM_TOOL_MAX 20
+#define CLAUDECODE_PERM_PREVIEW_MAX 96
+#define CLAUDECODE_PERM_PROJECT_MAX 24
+
 typedef struct {
     bool valid;
     bool preview_data;
@@ -104,6 +109,8 @@ typedef struct {
     bool zai_weekly_available;
     bool claudecode_enabled;
     bool claudecode_connected;
+    bool claudecode_perm_enabled;
+    bool claudecode_perm_pending;
     bool dotii_base_idle;
     bool dotii_state_assigned;
     bool dotii_return_enabled;
@@ -126,6 +133,12 @@ typedef struct {
     uint8_t claudecode_session_count;
     time_t claudecode_updated_at;
     claudecode_session_t claudecode_sessions[CLAUDECODE_SESSION_MAX];
+    char claudecode_perm_id[CLAUDECODE_PERM_ID_MAX];
+    char claudecode_perm_tool[CLAUDECODE_PERM_TOOL_MAX];
+    char claudecode_perm_preview[CLAUDECODE_PERM_PREVIEW_MAX];
+    char claudecode_perm_project[CLAUDECODE_PERM_PROJECT_MAX];
+    time_t claudecode_perm_expires;
+    uint8_t claudecode_perm_queued;
     char reset_date[16];
     char plan_type[32];
     codex_task_status_t status;

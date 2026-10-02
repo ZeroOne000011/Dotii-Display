@@ -12,10 +12,13 @@ sys.path.insert(0, str(BRIDGE))
 
 from codex_bridge import (  # noqa: E402
     CODEX_CLI_PACKAGE,
+    ClaudeCodeConfigStore,
+    default_claudecode_config,
     default_dotii_config,
     dotii_state,
     packaged_startup_command,
     startup_command,
+    validate_claudecode_config,
     validate_display_config,
     validate_dotii_config,
     validate_module_config,
@@ -27,6 +30,38 @@ from platforms.windows import WindowsPlatformAdapter  # noqa: E402
 class CodexUiConfigTests(unittest.TestCase):
     def test_codex_cli_package_is_pinned(self) -> None:
         self.assertEqual(CODEX_CLI_PACKAGE, "@openai/codex@0.151.0")
+
+    def test_claudecode_config_defaults_off_and_persists_toggle(self) -> None:
+        self.assertEqual(default_claudecode_config(), {"remote_approve_enabled": False})
+        with tempfile.TemporaryDirectory(dir=BRIDGE.parent / ".codx") as temporary:
+            store = ClaudeCodeConfigStore(Path(temporary) / "claudecode.json")
+            self.assertFalse(store.read()["remote_approve_enabled"])
+            store.write({"remote_approve_enabled": True})
+            self.assertTrue(ClaudeCodeConfigStore(Path(temporary) / "claudecode.json").read()
+                            ["remote_approve_enabled"])
+        with self.assertRaises(ValueError):
+            validate_claudecode_config({"remote_approve_enabled": "yes"})
+
+    def test_dotii_state_promotes_pending_permission_to_waiting(self) -> None:
+        waiting = dotii_state(
+            {"codex": {"task": {"status": "idle"}}},
+            {},
+            True,
+            default_dotii_config(),
+            claudecode={"connected": True, "status": "idle",
+                        "permission": {"pending": {"id": "a1b2c3", "tool": "Bash"}}},
+        )
+        self.assertEqual(waiting["state"], "claudecode_waiting_user")
+        self.assertIn("批准", waiting["reason"])
+
+        settled = dotii_state(
+            {"codex": {"task": {"status": "idle"}}},
+            {},
+            True,
+            default_dotii_config(),
+            claudecode={"connected": True, "status": "idle", "permission": {"pending": None}},
+        )
+        self.assertEqual(settled["state"], "idle")
 
     def test_module_config_migrates_dotii_as_enabled(self) -> None:
         modules = validate_module_config({"codex": True, "bambu": False})

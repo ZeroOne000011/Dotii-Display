@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 
@@ -11,8 +13,12 @@ sys.path.insert(0, str(BRIDGE))
 
 from claudecode_client import (  # noqa: E402
     HOOK_EVENTS,
+    PERMISSION_MAX_PENDING,
+    PERMISSION_WAIT_SECONDS,
     ClaudeCodeMonitor,
+    PermissionBroker,
     hook_command,
+    permission_hook_command,
     update_hooks,
 )
 
@@ -119,7 +125,7 @@ class ClaudeCodeHooksTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=BRIDGE.parent / ".codx") as temporary:
             path = self._settings(temporary)
             first = update_hooks(path, 8787)
-            self.assertEqual(sorted(first["changed"]), sorted(HOOK_EVENTS))
+            self.assertEqual(sorted(first["changed"]), sorted([*HOOK_EVENTS, "PermissionRequest"]))
             settings = json.loads(path.read_text(encoding="utf-8"))
             group = settings["hooks"]["Stop"][0]
             self.assertEqual(group.get("matcher"), "")
@@ -183,6 +189,145 @@ class ClaudeCodeHooksTests(unittest.TestCase):
         self.assertNotIn("'", command)
         # 服务离线（重启间隙等）时静默成功，不触发 Claude Code 的 hook 错误提示
         self.assertTrue(command.endswith("|| exit 0"))
+
+    def test_permission_hook_command_waits_long_and_silently_degrades(self) -> None:
+        command = permission_hook_command(8787)
+        self.assertIn("127.0.0.1:8787/api/v1/admin/claudecode/permission", command)
+        # 决策端点 hold 到 300s，curl 超时留余量；离线时静默回落本机提示
+        self.assertIn("-m 310", command)
+        self.assertNotIn("'", command)
+        self.assertTrue(command.endswith("|| exit 0"))
+
+    def test_install_adds_permission_request_with_decision_command(self) -> None:
+        with tempfile.TemporaryDirectory(dir=BRIDGE.parent / ".codx") as temporary:
+            path = self._settings(temporary)
+            update_hooks(path, 8787)
+            settings = json.loads(path.read_text(encoding="utf-8"))
+            commands = self._commands(settings, "PermissionRequest")
+            self.assertEqual(commands, [permission_hook_command(8787)])
+            removed = update_hooks(path, 8787, "remove")
+            self.assertIn("PermissionRequest", removed["changed"])
+            settings = json.loads(path.read_text(encoding="utf-8"))
+            self.assertNotIn("PermissionRequest", settings["hooks"])
+
+
+class PermissionBrokerTests(unittest.TestCase):
+    @staticmethod
+    def _submit(broker: PermissionBroker, tool: str, **extra) -> dict:
+        return {"tool_name": tool, "session_id": "s1",
+                "cwd": "/Users/dev/workplace/proj", **extra}
+
+    def _submit_in_thread(self, broker: PermissionBroker, payload: dict, timeout: float = 5.0,
+                          wait_count: int = 1):
+        result: dict = {}
+
+        def worker() -> None:
+            result["decision"] = broker.submit_and_wait(payload, timeout=timeout)
+
+        thread = threading.Thread(target=worker, daemon=True)
+        thread.start()
+        deadline = time.time() + 2.0
+        while len(broker.snapshot()["queue"]) < wait_count and time.time() < deadline:
+            time.sleep(0.01)
+        return thread, result
+
+    def test_mode_off_returns_immediately_without_queueing(self) -> None:
+        broker = PermissionBroker()
+        decision = broker.submit_and_wait(self._submit(broker, "Bash", tool_input={"command": "ls"}))
+        self.assertIsNone(decision)
+        self.assertFalse(broker.snapshot()["enabled"])
+        self.assertIsNone(broker.snapshot()["pending"])
+
+    def test_resolve_allows_and_denies_and_clears_queue(self) -> None:
+        broker = PermissionBroker()
+        broker.set_mode(True)
+        thread, result = self._submit_in_thread(
+            broker, self._submit(broker, "Bash", tool_input={"command": "git push"}))
+        snapshot = broker.snapshot()
+        pending = snapshot["pending"]
+        self.assertEqual(pending["tool"], "Bash")
+        self.assertEqual(pending["preview"], "git push")
+        self.assertEqual(pending["project"], "proj")
+        self.assertEqual(pending["queued"], 0)
+
+        self.assertTrue(broker.resolve(pending["id"], True))
+        thread.join(2.0)
+        self.assertEqual(result["decision"], {"behavior": "allow"})
+        self.assertIsNone(broker.snapshot()["pending"])
+
+    def test_timeout_returns_none_and_leaves_fail_open(self) -> None:
+        broker = PermissionBroker()
+        broker.set_mode(True)
+        thread, result = self._submit_in_thread(
+            broker, self._submit(broker, "Bash", tool_input={"command": "ls"}), timeout=0.05)
+        thread.join(2.0)
+        self.assertIsNone(result["decision"])
+        self.assertIsNone(broker.snapshot()["pending"])
+
+    def test_fifo_queue_snapshots_head_and_counts_tail(self) -> None:
+        broker = PermissionBroker()
+        broker.set_mode(True)
+        threads = []
+        for index in range(2):
+            thread, _ = self._submit_in_thread(
+                broker, self._submit(broker, "Bash", tool_input={"command": f"cmd-{index}"}),
+                wait_count=index + 1)
+            threads.append(thread)
+        snapshot = broker.snapshot()
+        self.assertEqual(snapshot["pending"]["preview"], "cmd-0")  # 队首 = 最早提交
+        self.assertEqual(snapshot["pending"]["queued"], 1)
+        self.assertEqual(len(snapshot["queue"]), 2)
+
+        broker.resolve(snapshot["queue"][0]["id"], False)
+        threads[0].join(2.0)
+        snapshot = broker.snapshot()
+        self.assertEqual(snapshot["pending"]["preview"], "cmd-1")  # 自动前进
+        self.assertEqual(snapshot["pending"]["queued"], 0)
+
+    def test_overflow_evicts_oldest_with_fail_open(self) -> None:
+        broker = PermissionBroker()
+        broker.set_mode(True)
+        results: list = []
+
+        for index in range(PERMISSION_MAX_PENDING + 1):
+            thread, result = self._submit_in_thread(
+                broker, self._submit(broker, "Bash", tool_input={"command": f"cmd-{index}"}),
+                timeout=5.0, wait_count=min(index + 1, PERMISSION_MAX_PENDING))
+            results.append((thread, result))
+
+        snapshot = broker.snapshot()
+        self.assertEqual(len(snapshot["queue"]), PERMISSION_MAX_PENDING)
+        # 被挤掉的最旧请求空体回落（fail-open），其余仍等待
+        results[0][0].join(2.0)
+        self.assertIsNone(results[0][1]["decision"])
+
+    def test_disabling_mode_releases_waiters_with_fail_open(self) -> None:
+        broker = PermissionBroker()
+        broker.set_mode(True)
+        thread, result = self._submit_in_thread(
+            broker, self._submit(broker, "Write", tool_input={"file_path": "/tmp/a.txt"}))
+        self.assertIsNotNone(broker.snapshot()["pending"])
+        broker.set_mode(False)
+        thread.join(2.0)
+        self.assertIsNone(result["decision"])
+        self.assertFalse(broker.snapshot()["enabled"])
+
+    def test_preview_picks_salient_field_and_truncates_utf8(self) -> None:
+        broker = PermissionBroker()
+        broker.set_mode(True)
+        long_command = "echo " + "点" * 80
+        thread, _ = self._submit_in_thread(
+            broker, self._submit(broker, "Bash", tool_input={"command": long_command}))
+        pending = broker.snapshot()["pending"]
+        encoded = pending["preview"].encode("utf-8")
+        self.assertLessEqual(len(encoded), 90)
+        self.assertTrue(pending["preview"].startswith("echo"))
+        broker.resolve(pending["id"], True)
+        thread.join(2.0)
+
+    def test_snapshot_reports_wait_seconds_constant(self) -> None:
+        broker = PermissionBroker()
+        self.assertEqual(broker.snapshot()["wait_seconds"], PERMISSION_WAIT_SECONDS)
 
 
 if __name__ == "__main__":

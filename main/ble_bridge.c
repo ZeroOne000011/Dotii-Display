@@ -46,7 +46,7 @@ static size_t s_snap_length;
 static uint32_t s_snap_crc;
 static uint32_t s_snap_revision;
 static uint32_t s_snap_accepted_revision;
-static char s_sync_notice[64] = "{\"resend\":false}";
+static char s_sync_notice[128] = "{\"resend\":false}";
 
 void ble_store_config_init(void);
 
@@ -229,6 +229,21 @@ static void set_sync_notice(const char *json)
 static void request_resend(void)
 {
     set_sync_notice("{\"resend\":true}");
+}
+
+/* 设备 → 管理中心：Dotii 屏上批准/拒绝 Claude Code 权限请求。
+   request_id 是管理中心下发的十六进制短 id，无 JSON 转义字符。 */
+void ble_bridge_report_decision(const char *request_id, bool allow)
+{
+    if (request_id == NULL || request_id[0] == '\0' ||
+        strlen(request_id) >= 32 || strspn(request_id, "0123456789abcdef") != strlen(request_id)) {
+        return;
+    }
+    char notice[96];
+    snprintf(notice, sizeof(notice),
+             "{\"resend\":false,\"decision\":{\"id\":\"%s\",\"allow\":%s}}",
+             request_id, allow ? "true" : "false");
+    set_sync_notice(notice);
 }
 
 /* BLE 快照通道写入：[1][总长 u16][crc u32][revision u32] / [2][块] / [3]。

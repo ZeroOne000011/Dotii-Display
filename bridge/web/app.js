@@ -861,6 +861,47 @@ function renderClaudecode(claudecode = {}, enabled = true) {
   hooksBadge.dataset.state = hooksInstalled ? "ready" : "idle";
   hooksBadge.textContent = hooksInstalled ? "已启用上报" : "未配置";
   setText("claudecode-nav-state", !enabled ? "已关闭" : online ? (claudecode.status_text || "在线") : "等待事件");
+
+  /* 屏上批准：远程批准开关状态 + 等待队列（Dotii 与管理页双入口）。 */
+  const permission = claudecode.permission || {};
+  const remoteToggle = byId("claudecode-remote");
+  if (remoteToggle && document.activeElement !== remoteToggle) {
+    remoteToggle.checked = permission.enabled === true;
+  }
+  const queue = Array.isArray(permission.queue) ? permission.queue : [];
+  const permCard = byId("claudecode-permission-card");
+  permCard.hidden = !(enabled && permission.enabled && queue.length);
+  if (!permCard.hidden) {
+    setText("claudecode-permission-state", `等待中 · ${queue.length} 个`);
+    const list = byId("claudecode-permission-list");
+    list.replaceChildren();
+    queue.forEach((item) => {
+      const entry = document.createElement("li");
+      const info = document.createElement("div");
+      info.className = "session-project";
+      info.textContent = `${item.project || "Claude Code"} · ${item.tool || "--"}`;
+      const remaining = Math.max(0, Math.floor((Number(item.expires_epoch) - Date.now() / 1000)));
+      const detail = document.createElement("span");
+      detail.className = "session-state";
+      detail.textContent = `${item.preview || "--"} · ${remaining} 秒`;
+      info.append(document.createElement("br"), detail);
+      const actions = document.createElement("div");
+      actions.className = "claudecode-permission-actions";
+      const approve = document.createElement("button");
+      approve.type = "button";
+      approve.className = "primary-button";
+      approve.textContent = "批准";
+      approve.addEventListener("click", () => sendClaudecodeDecision(item.id, true));
+      const deny = document.createElement("button");
+      deny.type = "button";
+      deny.className = "quiet-button";
+      deny.textContent = "拒绝";
+      deny.addEventListener("click", () => sendClaudecodeDecision(item.id, false));
+      actions.append(approve, deny);
+      entry.append(info, actions);
+      list.append(entry);
+    });
+  }
 }
 
 async function installClaudecodeHooks(action) {
@@ -888,6 +929,41 @@ async function installClaudecodeHooks(action) {
     state.claudecodeBusy = false;
     byId("claudecode-hooks-install").disabled = false;
     byId("claudecode-hooks-remove").disabled = false;
+  }
+}
+
+async function sendClaudecodeDecision(id, allow) {
+  try {
+    const response = await fetch("/api/v1/admin/claudecode/decision", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, allow }),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+    if (!result.resolved) throw new Error("该请求已超时或已被处理");
+    showToast(allow ? "已批准" : "已拒绝");
+  } catch (error) {
+    showToast(error.message || "决策发送失败");
+  } finally {
+    await refreshOverview();
+  }
+}
+
+async function updateClaudecodeRemote(enabled) {
+  const toggle = byId("claudecode-remote");
+  try {
+    const response = await fetch("/api/v1/admin/claudecode/remote", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled }),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "设置失败");
+    showToast(enabled ? "远程批准已开启，权限请求将推送到 Dotii" : "远程批准已关闭");
+  } catch (error) {
+    toggle.checked = !enabled;
+    showToast(error.message || "设置失败");
   }
 }
 
@@ -2104,6 +2180,7 @@ byId("zai-check").addEventListener("click", checkZai);
 byId("claudecode-enabled").addEventListener("change", (event) => updateModule("claudecode", event.target.checked));
 byId("claudecode-hooks-install").addEventListener("click", () => installClaudecodeHooks("install"));
 byId("claudecode-hooks-remove").addEventListener("click", () => installClaudecodeHooks("remove"));
+byId("claudecode-remote").addEventListener("change", (event) => updateClaudecodeRemote(event.target.checked));
 byId("dotii-enabled").addEventListener("change", (event) => updateModule("dotii", event.target.checked));
 byId("dotii-config-form").addEventListener("submit", saveDotiiConfig);
 byId("dotii-follow-live").addEventListener("click", () => {

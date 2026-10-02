@@ -62,7 +62,10 @@ class ModuleOnDemandTests(unittest.TestCase):
         self.assertEqual(info["LSMinimumSystemVersion"], "13.0")
         self.assertIn("Dotii", info["NSBluetoothAlwaysUsageDescription"])
         self.assertIn("Dotii", info["NSLocalNetworkUsageDescription"])
-        self.assertEqual(info["CFBundleShortVersionString"], "1.1.1")
+        # 打包脚本要求 plist 版本与固件版本一致（build_macos.sh 校验），此处同步把关。
+        cmake = (BRIDGE.parent / "CMakeLists.txt").read_text(encoding="utf-8")
+        project_ver = re.search(r'PROJECT_VER\s+"([^"]+)"', cmake).group(1)
+        self.assertEqual(info["CFBundleShortVersionString"], project_ver)
         self.assertEqual(info["CFBundleIconName"], "AppIcon")
 
     def test_macos_brand_icons_are_complete_and_used_by_native_host(self):

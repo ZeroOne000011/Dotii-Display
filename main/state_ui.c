@@ -126,6 +126,14 @@ static lv_obj_t *s_claudecode_pill;
 static lv_obj_t *s_claudecode_pill_label;
 static lv_obj_t *s_claudecode_sessions;
 static lv_obj_t *s_claudecode_activity;
+/* 表情确认页：权限请求出现时 Dotii 抬起好奇表情等你在屏上批准。 */
+static lv_obj_t *s_claudecode_confirm;
+static lv_obj_t *s_confirm_left_eye;
+static lv_obj_t *s_confirm_right_eye;
+static lv_obj_t *s_confirm_mouth;
+static lv_obj_t *s_confirm_title;
+static lv_obj_t *s_confirm_preview;
+static lv_obj_t *s_confirm_countdown;
 static lv_obj_t *s_detail_title;
 static lv_obj_t *s_detail_meta;
 static lv_obj_t *s_user_message;
@@ -436,6 +444,7 @@ static void return_from_current(void)
     if (s_current == s_detail) load_screen(enabled_return_screen(page_screen(0)), false);
     else if (s_current == s_bambu_detail) load_screen(enabled_return_screen(s_bambu_main), false);
     else if (s_current == s_claudecode_detail) load_screen(enabled_return_screen(s_claudecode_main), false);
+    else if (s_current == s_claudecode_confirm) load_screen(enabled_return_screen(s_dotii), false);
     else if (s_current == s_settings) load_screen(first_enabled_screen(), false);
     else if (s_current == s_power) load_screen(enabled_return_screen(s_before_power), false);
 }
@@ -1422,6 +1431,19 @@ static void bambu_pause_event(lv_event_t *event)
     connectivity_bambu_command(s_snapshot.bambu_status == BAMBU_STATUS_PAUSED ? "resume" : "pause");
 }
 
+/* 屏上批准/拒绝 Claude Code 权限请求：Wi-Fi 走命令队列，BLE 走 SYNC notify
+   （connectivity_claudecode_decision 内部分流）。350ms 手势守卫防滑动误触。
+   决策发出后立即回表情页——pending 清空要等下一份快照（BLE 2s/Wi-Fi 5s），
+   本地先行切走给出即时反馈；若队列还有下一条，其 id 边沿会再次切入确认页。 */
+static void claudecode_decision_event(lv_event_t *event)
+{
+    if (lv_event_get_code(event) != LV_EVENT_CLICKED) return;
+    if (s_last_gesture_at != 0 && lv_tick_elaps(s_last_gesture_at) < 350) return;
+    bool allow = lv_event_get_user_data(event) != NULL;
+    connectivity_claudecode_decision(s_snapshot.claudecode_perm_id, allow);
+    if (s_current == s_claudecode_confirm) load_screen(s_dotii, true);
+}
+
 static void bambu_stop_anim_done(lv_anim_t *animation)
 {
     (void)animation;
@@ -1789,6 +1811,58 @@ static void build_claudecode_detail(void)
     lv_obj_add_event_cb(s_claudecode_main, detail_clicked, LV_EVENT_CLICKED, s_claudecode_detail);
 }
 
+/* 表情确认页：权限请求出现时自动切入。Dotii 好奇表情 + 请求摘要 +
+   批准/拒绝按钮；处理完或超时自动回表情页，右滑可暂时离开。 */
+static lv_obj_t *make_dotii_part(lv_obj_t *parent, int width, int height,
+                                 int x, int y, uint32_t part_color);
+static void build_claudecode_confirm(void)
+{
+    s_claudecode_confirm = lv_obj_create(NULL);
+    set_screen_background(s_claudecode_confirm);
+    add_activity_event(s_claudecode_confirm);
+    lv_obj_add_event_cb(s_claudecode_confirm, swipe_event, LV_EVENT_GESTURE, NULL);
+    lv_obj_add_flag(s_claudecode_confirm, LV_OBJ_FLAG_CLICKABLE);
+
+    s_confirm_left_eye = make_dotii_part(s_claudecode_confirm, 62, 82, -76, -142, 0xF4EAD2);
+    s_confirm_right_eye = make_dotii_part(s_claudecode_confirm, 46, 62, 82, -134, 0xF4EAD2);
+    s_confirm_mouth = make_dotii_part(s_claudecode_confirm, 24, 24, 8, -84, 0xF2C66D);
+
+    s_confirm_title = make_label(s_claudecode_confirm, "--", &ui_font_detail_20, COLOR_WARNING);
+    lv_obj_align(s_confirm_title, LV_ALIGN_CENTER, 0, 72);
+    s_confirm_preview = make_label(s_claudecode_confirm, "--", &s_ui_font, COLOR_TEXT);
+    lv_obj_set_style_transform_scale(s_confirm_preview, 282, 0);
+    lv_obj_set_size(s_confirm_preview, 300, 24);
+    lv_label_set_long_mode(s_confirm_preview, LV_LABEL_LONG_DOT);
+    lv_obj_set_style_text_align(s_confirm_preview, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(s_confirm_preview, LV_ALIGN_CENTER, 0, 98);
+    s_confirm_countdown = make_label(s_claudecode_confirm, "--", &ui_font_detail_20, COLOR_MUTED);
+    lv_obj_align(s_confirm_countdown, LV_ALIGN_BOTTOM_MID, 0, -18);
+
+    lv_obj_t *approve = lv_button_create(s_claudecode_confirm);
+    lv_obj_set_size(approve, 70, 70);
+    lv_obj_align(approve, LV_ALIGN_BOTTOM_LEFT, 144, -30);
+    lv_obj_set_style_radius(approve, 20, 0);
+    lv_obj_set_style_bg_color(approve, color(0x0B2416), 0);
+    lv_obj_set_style_border_width(approve, 1, 0);
+    lv_obj_set_style_border_color(approve, color(COLOR_GREEN), 0);
+    lv_obj_t *approve_icon = make_label(approve, LV_SYMBOL_OK,
+                                        &lv_font_montserrat_32, COLOR_GREEN);
+    lv_obj_center(approve_icon);
+    lv_obj_add_event_cb(approve, claudecode_decision_event, LV_EVENT_CLICKED, (void *)1);
+
+    lv_obj_t *deny = lv_button_create(s_claudecode_confirm);
+    lv_obj_set_size(deny, 70, 70);
+    lv_obj_align(deny, LV_ALIGN_BOTTOM_RIGHT, -144, -30);
+    lv_obj_set_style_radius(deny, 20, 0);
+    lv_obj_set_style_bg_color(deny, color(0x311A19), 0);
+    lv_obj_set_style_border_width(deny, 1, 0);
+    lv_obj_set_style_border_color(deny, color(COLOR_DANGER), 0);
+    lv_obj_t *deny_icon = make_label(deny, LV_SYMBOL_CLOSE,
+                                     &lv_font_montserrat_32, COLOR_DANGER);
+    lv_obj_center(deny_icon);
+    lv_obj_add_event_cb(deny, claudecode_decision_event, LV_EVENT_CLICKED, (void *)0);
+}
+
 static void build_custom(void)
 {
     s_custom = lv_obj_create(NULL);
@@ -2044,6 +2118,19 @@ static void render_dotii_expression(void)
     }
 }
 
+/* 确认页表情：固定 curious（好奇询问）姿态，整体上移给请求信息让位。 */
+static void render_confirm_expression(void)
+{
+    if (s_claudecode_confirm == NULL) return;
+    const uint32_t duration = dotii_expression_duration(DOTII_EXPRESSION_CURIOUS);
+    const uint32_t phase = ((lv_tick_get() % duration) * 8U) / duration;
+    const int curious = phase < 4 ? (int)phase : (int)(8 - phase);
+    set_dotii_part(s_confirm_left_eye, 62, 82, -76, -142, 0xF4EAD2, LV_OPA_COVER);
+    set_dotii_part(s_confirm_right_eye, 46, 62, 82, -134, 0xF4EAD2, LV_OPA_COVER);
+    set_dotii_part(s_confirm_mouth, 20 + curious, 20 + curious, 8, -84,
+                   0xF2C66D, LV_OPA_COVER);
+}
+
 static void dotii_touch_event(lv_event_t *event)
 {
     if (lv_event_get_code(event) != LV_EVENT_SHORT_CLICKED) return;
@@ -2061,6 +2148,7 @@ static void dotii_timer(lv_timer_t *timer)
 {
     (void)timer;
     if (s_current == s_dotii && s_screen_on) render_dotii_expression();
+    if (s_current == s_claudecode_confirm && s_screen_on) render_confirm_expression();
 }
 
 static void build_dotii(void)
@@ -2378,6 +2466,14 @@ static void layout_quick_buttons(const codex_snapshot_t *snapshot)
     }
 }
 
+/* Claude Code 权限请求等待中：期间豁免自动返回/熄屏/睡眠（300s 请求超时
+   是自然恢复上限），并由新请求边沿触发自动切到详情页。 */
+static bool claudecode_perm_waiting(void)
+{
+    return s_snapshot.claudecode_enabled && s_snapshot.claudecode_perm_enabled &&
+           s_snapshot.claudecode_perm_pending;
+}
+
 static void update_snapshot(const codex_snapshot_t *snapshot)
 {
     if (!s_dotii_state_seen || snapshot->dotii_state_token != s_dotii_state_token ||
@@ -2620,6 +2716,43 @@ static void update_snapshot(const codex_snapshot_t *snapshot)
         lv_label_set_text(s_claudecode_activity, "--");
     }
 
+    /* 表情确认页驱动：新权限请求（id 边沿）自动切入确认页，处理完或超时
+       （pending 消失）自动回表情页。同一请求只切一次——右滑离开后不再拉回，
+       下一条新请求会再次切入。设置/控制中心/电源流程期间不打断。 */
+    {
+        static char s_perm_seen_id[CLAUDECODE_PERM_ID_MAX] = "";
+        const bool perm_waiting = claudecode_perm_waiting();
+        if (perm_waiting &&
+            strncmp(snapshot->claudecode_perm_id, s_perm_seen_id,
+                    sizeof(s_perm_seen_id)) != 0) {
+            strlcpy(s_perm_seen_id, snapshot->claudecode_perm_id, sizeof(s_perm_seen_id));
+            if (s_current != s_settings && s_current != s_control && s_current != s_power) {
+                if (s_screen_saver_active) exit_screen_saver();
+                lv_label_set_text_fmt(s_confirm_title, "%s · %s",
+                                      snapshot->claudecode_perm_project[0]
+                                          ? snapshot->claudecode_perm_project : "Claude Code",
+                                      snapshot->claudecode_perm_tool);
+                lv_label_set_text(s_confirm_preview,
+                                  snapshot->claudecode_perm_preview[0]
+                                      ? snapshot->claudecode_perm_preview : "--");
+                load_screen(s_claudecode_confirm, true);
+            }
+        }
+        if (!perm_waiting) {
+            s_perm_seen_id[0] = '\0';
+            if (s_current == s_claudecode_confirm) load_screen(s_dotii, true);
+        } else if (s_current == s_claudecode_confirm) {
+            time_t remaining = snapshot->claudecode_perm_expires - time(NULL);
+            if (remaining < 0) remaining = 0;
+            if (snapshot->claudecode_perm_queued > 0) {
+                lv_label_set_text_fmt(s_confirm_countdown, "%d 秒 · 还有 %u 个",
+                                      (int)remaining, snapshot->claudecode_perm_queued);
+            } else {
+                lv_label_set_text_fmt(s_confirm_countdown, "%d 秒", (int)remaining);
+            }
+        }
+    }
+
     for (uint8_t index = 0; index < CLAUDECODE_SESSION_MAX; ++index) {
         const claudecode_session_t *session = &snapshot->claudecode_sessions[index];
         bool present = claudecode_online && snapshot->claudecode_session_count > 0 &&
@@ -2779,9 +2912,10 @@ static void ui_timer(lv_timer_t *timer)
         s_ignore_next_dotii_click = false;
     }
     /* 自动回表情页：开关开启且表情页可用时，其他页面 30 秒无交互自动切回。
-       仅对页面循环成员及其详情页生效（设置/控制中心/熄屏流程不打断）。 */
+       仅对页面循环成员及其详情页生效（设置/控制中心/熄屏流程不打断）；
+       权限请求等待期间豁免（确认页正在等人处理）。 */
     if (s_screen_on && !s_screen_saver_active && s_snapshot.dotii_return_enabled &&
-        s_snapshot.dotii_enabled && inactive_ms >= 30000U &&
+        s_snapshot.dotii_enabled && inactive_ms >= 30000U && !claudecode_perm_waiting() &&
         s_current != s_dotii && s_current != s_settings &&
         s_current != s_control && s_current != s_power) {
         load_screen(s_dotii, true);
@@ -2791,10 +2925,11 @@ static void ui_timer(lv_timer_t *timer)
     const uint32_t active_sleep_timeout = s_external_power ?
         s_charging_sleep_timeout_seconds : s_sleep_timeout_seconds;
     if (s_screen_on && !s_screen_saver_active && active_screen_off_timeout > 0 &&
-        inactive_ms > active_screen_off_timeout * 1000U) {
+        inactive_ms > active_screen_off_timeout * 1000U && !claudecode_perm_waiting()) {
         if (!enter_screen_saver()) screen_off();
     }
-    if (active_sleep_timeout > 0 && inactive_ms > active_sleep_timeout * 1000U) {
+    if (active_sleep_timeout > 0 && inactive_ms > active_sleep_timeout * 1000U &&
+        !claudecode_perm_waiting()) {
         s_last_activity = lv_tick_get();
         board_input_request_sleep();
     }
@@ -2817,6 +2952,7 @@ void state_ui_start(QueueHandle_t snapshot_queue)
     build_bambu();
     build_zai();
     build_claudecode();
+    build_claudecode_confirm();
     build_claudecode_detail();
     build_custom();
     build_dotii();

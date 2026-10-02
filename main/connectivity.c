@@ -6,6 +6,7 @@
 #include <time.h>
 
 #include "app_state.h"
+#include "ble_bridge.h"
 #include "cJSON.h"
 #include "device_config.h"
 #include "esp_crt_bundle.h"
@@ -54,6 +55,7 @@ static uint8_t *s_bambu_camera_buffers[2];
 static uint32_t s_bambu_camera_revisions[2];
 static int s_bambu_camera_active = -1;
 static QueueHandle_t s_bambu_command_queue;
+static QueueHandle_t s_decision_queue;
 static codex_task_detail_t *s_work_tasks;
 static size_t s_work_task_count;
 
@@ -62,6 +64,12 @@ typedef enum {
     BAMBU_COMMAND_RESUME,
     BAMBU_COMMAND_STOP,
 } bambu_command_t;
+
+/* Dotii 屏上批准/拒绝 Claude Code 权限请求（管理中心下发 id，回传决策）。 */
+typedef struct {
+    char id[CLAUDECODE_PERM_ID_MAX];
+    bool allow;
+} claudecode_decision_t;
 
 typedef struct {
     char *body;
@@ -699,6 +707,13 @@ static void copy_claudecode_status(cJSON *root, codex_snapshot_t *snapshot)
     snapshot->claudecode_status = CODEX_STATUS_OFFLINE;
     snapshot->claudecode_session_count = 0;
     snapshot->claudecode_updated_at = 0;
+    snapshot->claudecode_perm_enabled = false;
+    snapshot->claudecode_perm_pending = false;
+    snapshot->claudecode_perm_id[0] = '\0';
+    snapshot->claudecode_perm_tool[0] = '\0';
+    snapshot->claudecode_perm_preview[0] = '\0';
+    snapshot->claudecode_perm_project[0] = '\0';
+    snapshot->claudecode_perm_expires = 0;
     memset(snapshot->claudecode_sessions, 0, sizeof(snapshot->claudecode_sessions));
     cJSON *claudecode = cJSON_GetObjectItemCaseSensitive(root, "claudecode");
     if (!cJSON_IsObject(claudecode)) return;
@@ -734,6 +749,26 @@ static void copy_claudecode_status(cJSON *root, codex_snapshot_t *snapshot)
             index++;
         }
     }
+
+    /* 屏上批准队列：pending 只取队首（FIFO，处理完由管理中心自动前进）。 */
+    cJSON *permission = cJSON_GetObjectItemCaseSensitive(claudecode, "permission");
+    if (!cJSON_IsObject(permission)) return;
+    snapshot->claudecode_perm_enabled = cJSON_IsTrue(
+        cJSON_GetObjectItemCaseSensitive(permission, "enabled"));
+    cJSON *pending = cJSON_GetObjectItemCaseSensitive(permission, "pending");
+    if (!cJSON_IsObject(pending)) return;
+    copy_json_string(pending, "id", snapshot->claudecode_perm_id, CLAUDECODE_PERM_ID_MAX);
+    copy_json_string(pending, "tool", snapshot->claudecode_perm_tool, CLAUDECODE_PERM_TOOL_MAX);
+    copy_json_string(pending, "preview", snapshot->claudecode_perm_preview,
+                     CLAUDECODE_PERM_PREVIEW_MAX);
+    copy_json_string(pending, "project", snapshot->claudecode_perm_project,
+                     CLAUDECODE_PERM_PROJECT_MAX);
+    cJSON *expires = cJSON_GetObjectItemCaseSensitive(pending, "expires_epoch");
+    snapshot->claudecode_perm_expires = cJSON_IsNumber(expires) ? (time_t)expires->valuedouble : 0;
+    cJSON *queued = cJSON_GetObjectItemCaseSensitive(pending, "queued");
+    snapshot->claudecode_perm_queued = cJSON_IsNumber(queued) ? (uint8_t)queued->valueint : 0;
+    snapshot->claudecode_perm_pending = snapshot->claudecode_perm_id[0] != '\0' &&
+                                        snapshot->claudecode_perm_expires > 0;
 }
 
 static bool parse_snapshot(const char *json, codex_snapshot_t *snapshot)
@@ -1094,6 +1129,39 @@ static bool send_bambu_command(bambu_command_t command)
     return error == ESP_OK && status == 202;
 }
 
+static bool send_claudecode_decision(const claudecode_decision_t *decision)
+{
+    const device_config_values_t *device_config = device_config_get();
+    char url[256];
+    strlcpy(url, device_config->bridge_url, sizeof(url));
+    char *last_slash = strrchr(url, '/');
+    if (last_slash == NULL) return false;
+    strlcpy(last_slash + 1, "claudecode/decision", sizeof(url) - (size_t)(last_slash + 1 - url));
+    char payload[64];
+    snprintf(payload, sizeof(payload), "{\"id\":\"%s\",\"allow\":%s}",
+             decision->id, decision->allow ? "true" : "false");
+    char response_body[256] = {0};
+    http_body_t response = {.body = response_body, .capacity = sizeof(response_body)};
+    esp_http_client_config_t config = {
+        .url = url, .event_handler = http_event_handler, .user_data = &response,
+        .timeout_ms = 8000, .buffer_size = 512, .crt_bundle_attach = esp_crt_bundle_attach,
+    };
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+    if (client == NULL) return false;
+    esp_http_client_set_method(client, HTTP_METHOD_POST);
+    esp_http_client_set_header(client, "Content-Type", "application/json");
+    if (strlen(device_config->bridge_token) > 0) {
+        esp_http_client_set_header(client, "X-Bridge-Token", device_config->bridge_token);
+    }
+    esp_http_client_set_post_field(client, payload, strlen(payload));
+    esp_err_t error = esp_http_client_perform(client);
+    int status = esp_http_client_get_status_code(client);
+    esp_http_client_cleanup(client);
+    ESP_LOGI(TAG, "Claude Code decision %s: %s, HTTP %d",
+             decision->allow ? "allow" : "deny", esp_err_to_name(error), status);
+    return error == ESP_OK && status == 200;
+}
+
 static void publish_offline_state(void)
 {
     if (s_have_snapshot) {
@@ -1157,6 +1225,10 @@ static void bridge_task(void *argument)
             bambu_command_t command;
             while (s_bambu_command_queue != NULL && xQueueReceive(s_bambu_command_queue, &command, 0) == pdTRUE) {
                 send_bambu_command(command);
+            }
+            claudecode_decision_t decision;
+            while (s_decision_queue != NULL && xQueueReceive(s_decision_queue, &decision, 0) == pdTRUE) {
+                send_claudecode_decision(&decision);
             }
             if (fetch_snapshot(&s_work_snapshot)) {
                 if (!s_bridge_online) ESP_LOGI(TAG, "Bridge snapshot received");
@@ -1240,9 +1312,11 @@ void connectivity_start(void)
         return;
     }
     s_bambu_command_queue = xQueueCreate(4, sizeof(bambu_command_t));
+    s_decision_queue = xQueueCreate(4, sizeof(claudecode_decision_t));
     s_work_tasks = heap_caps_calloc(CODEX_TASK_DETAIL_MAX, sizeof(*s_work_tasks),
                                     MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    ESP_ERROR_CHECK((s_events == NULL || s_bambu_command_queue == NULL || s_work_tasks == NULL) ?
+    ESP_ERROR_CHECK((s_events == NULL || s_bambu_command_queue == NULL || s_decision_queue == NULL ||
+                     s_work_tasks == NULL) ?
                     ESP_ERR_NO_MEM : ESP_OK);
     ESP_LOGI(TAG, "Bridge data buffers ready");
     setenv("TZ", CONFIG_STATE_DISPLAY_TIMEZONE, 1);
@@ -1278,6 +1352,28 @@ bool connectivity_bambu_command(const char *action)
     else if (strcmp(action, "stop") == 0) command = BAMBU_COMMAND_STOP;
     else return false;
     if (xQueueSend(s_bambu_command_queue, &command, 0) != pdTRUE) return false;
+    xEventGroupSetBits(s_events, REFRESH_REQUESTED_BIT);
+    return true;
+}
+
+bool connectivity_claudecode_decision(const char *request_id, bool allow)
+{
+    if (request_id == NULL || request_id[0] == '\0' ||
+        strlen(request_id) >= CLAUDECODE_PERM_ID_MAX ||
+        strspn(request_id, "0123456789abcdef") != strlen(request_id)) {
+        return false;
+    }
+    const device_config_values_t *device_config = device_config_get();
+    if (device_config->link_mode == DEVICE_LINK_MODE_BLE) {
+        /* 蓝牙精简模式无 Wi-Fi：决策经 SYNC 特征 notify 直接上行。 */
+        ble_bridge_report_decision(request_id, allow);
+        return true;
+    }
+    if (s_decision_queue == NULL) return false;
+    claudecode_decision_t decision;
+    strlcpy(decision.id, request_id, sizeof(decision.id));
+    decision.allow = allow;
+    if (xQueueSend(s_decision_queue, &decision, 0) != pdTRUE) return false;
     xEventGroupSetBits(s_events, REFRESH_REQUESTED_BIT);
     return true;
 }

@@ -379,6 +379,10 @@
             <div class="card-heading"><div><h3>活动会话</h3><p>按最近活动排序，最多显示 4 个。</p></div><span class="status-pill" id="claudecode-connection">尚未连接</span></div>
             <ul class="claudecode-session-list" id="claudecode-session-list"></ul>
           </article>
+          <article class="bambu-card" id="claudecode-permission-card" hidden>
+            <div class="card-heading"><div><h3>等待批准的权限请求</h3><p>同时显示在 Dotii 屏上；此处也可直接处理。</p></div><span class="status-pill" id="claudecode-permission-state">等待中</span></div>
+            <ul class="claudecode-session-list" id="claudecode-permission-list"></ul>
+          </article>
         </div>
         <section class="module-preferences" aria-labelledby="claudecode-preferences-heading">
           <div class="module-preferences-heading">
@@ -396,6 +400,16 @@
               <button class="primary-button" id="claudecode-hooks-install" type="button">启用事件上报</button>
               <button class="quiet-button" id="claudecode-hooks-remove" type="button">停用并清理</button>
             </div>
+          </article>
+          <article class="bambu-card module-preference-card" id="claudecode-remote-card">
+            <div class="card-heading"><div><h3>屏上批准权限请求</h3><p>在 Dotii 圆屏上直接批准或拒绝 Claude Code 的权限请求。</p></div>
+              <label class="module-switch">
+                <span>远程批准</span>
+                <input id="claudecode-remote" type="checkbox">
+                <span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span>
+              </label>
+            </div>
+            <p class="bambu-help">需要先启用事件上报（安装 PermissionRequest hook，要求较新版本的 Claude Code）。开启后权限请求会推送到 Dotii，最长等待 300 秒；超时或未开启时，权限提示照常出现在电脑端，工作流不受影响。拒绝会附带说明发送给 Claude。</p>
           </article>
         </section>
       </section>
