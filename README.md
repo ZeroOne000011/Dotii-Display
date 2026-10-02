@@ -1,19 +1,20 @@
 # Dotii 桌面交互屏
 
-Dotii 是一套由 ESP32-S3 圆形 AMOLED 桌面屏与 Windows/macOS 端“Dotii 管理中心”组成的开源状态显示系统。它可以显示 Codex 用量与任务状态、Bambu Lab 打印进度、自定义内容，并通过 Dotii 表情提供轻量互动。
+Dotii 是一套由 ESP32-S3 圆形 AMOLED 桌面屏与 Windows/macOS 端“Dotii 管理中心”组成的开源状态显示系统。它可以显示 Codex 用量与任务状态、Bambu Lab 打印进度、Z.ai 用量、Claude Code 工作状态、自定义内容，并通过 Dotii 表情提供轻量互动。设备支持 Wi-Fi 局域网与蓝牙（精简模式）两种数据链路，后者无需网络环境。
 
 ![Dotii 桌面交互屏产品渲染图](assets/dotii-product-render.png)
 
-[Windows 下载](https://github.com/ZeroOne000011/Dotii-Display/releases/tag/v1.1.1) · [macOS 下载（预览版）](https://github.com/ZeroOne000011/Dotii-Display/releases/tag/v1.1.1-macos-preview.1) · [MakerWorld 模型与打印文件](https://makerworld.com.cn/zh/models/2918764-dotii-zhuo-mian-jiao-hu-ping#profileId-3421401) · [开发指南](开发指南.md)
+[下载（Releases）](../../releases) · [MakerWorld 模型与打印文件](https://makerworld.com.cn/zh/models/2918764-dotii-zhuo-mian-jiao-hu-ping#profileId-3421401) · [开发指南](开发指南.md)
 
 ## 选择你的系统
 
 | 系统 | 支持范围 | 下载内容 | 当前状态 |
 | --- | --- | --- | --- |
-| Windows | Windows 10/11 x64 | `DotiiManagementCenter-1.1.1-portable.zip` | 正式版 |
-| macOS | Apple Silicon、macOS 13 及以上 | `DotiiManagementCenter-macOS-arm64-1.1.1.dmg` | 预览版，未经苹果公证 |
+| Windows | Windows 10/11 x64 | `DotiiManagementCenter-1.1.1-portable.zip` | 正式版（见[上游 v1.1.1](https://github.com/ZeroOne000011/Dotii-Display/releases/tag/v1.1.1)） |
+| macOS | Apple Silicon、macOS 13 及以上 | `DotiiManagementCenter-macOS-arm64-1.2.0-ble.1.dmg` | 预览版，未经苹果公证 |
+| 设备固件 | ESP32-S3（微雪 1.75 圆屏） | `state_display.bin` | 需 ESP-IDF 烧录，见[固件 release](../../releases/tag/v1.2.0-ble.1) |
 
-macOS 预览版目前不支持 Intel Mac。由于尚未经过苹果公证，首次打开时需要在“系统设置 > 隐私与安全性”中手动允许。Windows 和 macOS 安装包均已包含运行所需组件，普通用户无需安装 Python、Node.js、Codex CLI、FFmpeg 或 ESP-IDF。
+当前仓库的 v1.2.0-ble.1 预发布线包含蓝牙精简模式等新功能，暂未提供 Windows 便携包；Windows 用户可先用上游 v1.1.1 正式版（不含新功能），或按开发指南从源码运行。macOS 预览版目前不支持 Intel Mac。由于尚未经过苹果公证，首次打开时需要在“系统设置 > 隐私与安全性”中手动允许。Windows 和 macOS 安装包均已包含运行所需组件，普通用户无需安装 Python、Node.js、Codex CLI、FFmpeg 或 ESP-IDF。
 
 ## 使用前准备
 
@@ -44,8 +45,8 @@ macOS 预览版目前不支持 Intel Mac。由于尚未经过苹果公证，首�
 
 ## macOS 快速上手
 
-1. 从 [macOS Release](https://github.com/ZeroOne000011/Dotii-Display/releases/tag/v1.1.1-macos-preview.1) 下载 DMG。当前版本仅支持 Apple Silicon Mac 和 macOS 13 及以上。
-2. 打开 DMG，将 `DotiiManagementCenter-1.1.1.app` 拖到“应用程序”。
+1. 从 [macOS Release](../../releases/tag/v1.2.0-ble.1-macos.1) 下载 DMG。当前版本仅支持 Apple Silicon Mac 和 macOS 13 及以上。
+2. 打开 DMG，将 `DotiiManagementCenter-1.2.0-ble.1.app` 拖到“应用程序”。
 3. 从“应用程序”打开 Dotii 管理中心。如果系统阻止启动，请打开“系统设置 > 隐私与安全性”，在对应提示旁选择“仍要打开”，然后再次确认。
 4. 首次扫描 Dotii 时允许蓝牙权限；连接 Dotii 或 Bambu 时按系统提示允许本地网络权限。
 5. 应用启动后会驻留在菜单栏。后续烧录、蓝牙配网及模块设置均在管理页面中完成。
@@ -57,7 +58,7 @@ macOS 预览版目前不支持 Intel Mac。由于尚未经过苹果公证，首�
 将 DMG 和 `.dmg.sha256` 文件放在同一目录，在终端进入该目录并执行：
 
 ```bash
-shasum -a 256 -c DotiiManagementCenter-macOS-arm64-1.1.1.dmg.sha256
+shasum -a 256 -c DotiiManagementCenter-macOS-arm64-1.2.0-ble.1.dmg.sha256
 ```
 
 结果应显示 `OK`；如果校验失败，请不要打开该 DMG。
@@ -75,8 +76,8 @@ shasum -a 256 -c DotiiManagementCenter-macOS-arm64-1.1.1.dmg.sha256
 - **Z.ai 用量**：读取智谱 GLM Coding Plan 的 5 小时与周窗口剩余额度、套餐档位和重置时间。
 - **Claude Code 状态**：通过官方 hooks 显示 Claude Code 的工作中、等待操作、完成和失败状态，可联动 Dotii 表情。
 - **自定义页面**：编辑文字、颜色、图片和圆环，保存后同步到 466 × 466 圆屏。
-- **Dotii 表情**：显示待机、眨眼、连接、工作、完成、失败等状态动画。
-- **设备管理**：提供蓝牙配网、重置配网、显示设置、休眠设置、登录自启动和受保护的一键烧录。设备可在设置页切换 Wi-Fi 或蓝牙（精简模式，免网络环境）链路。
+- **Dotii 表情**：显示待机、眨眼、连接、工作、完成、失败等状态动画，可开启“其他页面 30 秒无操作自动返回表情页”。
+- **设备管理**：提供蓝牙配网、重置配网、显示设置、休眠设置、登录自启动和受保护的一键烧录。数据链路（Wi-Fi 或蓝牙精简模式）在管理页配网时选择；设备设置页也提供无电脑时的备用切换入口。
 
 Codex 与 Bambu 首次运行默认关闭，不会在用户启用前自动安装、登录或连接外部服务。Z.ai 与 Claude Code 同样默认关闭：Z.ai 只在用户填入 API Key 并启用后访问智谱接口；Claude Code 的事件上报需要在管理页明确启用，才会修改本机 `~/.claude/settings.json`（自动备份，可随时停用）。
 
