@@ -11,10 +11,10 @@ Dotii 是一套由 ESP32-S3 圆形 AMOLED 桌面屏与 Windows/macOS 端“Dotii
 | 系统 | 支持范围 | 下载内容 | 当前状态 |
 | --- | --- | --- | --- |
 | Windows | Windows 10/11 x64 | `DotiiManagementCenter-1.1.1-portable.zip` | 正式版（见[上游 v1.1.1](https://github.com/ZeroOne000011/Dotii-Display/releases/tag/v1.1.1)） |
-| macOS | Apple Silicon、macOS 13 及以上 | `DotiiManagementCenter-macOS-arm64-1.2.0-ble.1.dmg` | 预览版，未经苹果公证 |
-| 设备固件 | ESP32-S3（微雪 1.75 圆屏） | `state_display.bin` | 需 ESP-IDF 烧录，见[固件 release](../../releases/tag/v1.2.0-ble.1) |
+| macOS | Apple Silicon、macOS 13 及以上 | `DotiiManagementCenter-macOS-arm64-1.3.0-ble.1.dmg` | 预览版，未经苹果公证 |
+| 设备固件 | ESP32-S3（微雪 1.75 圆屏） | `state_display.bin` | 需 ESP-IDF 烧录，见[固件 release](../../releases/tag/v1.3.0-ble.1) |
 
-当前仓库的 v1.2.0-ble.1 预发布线包含蓝牙精简模式等新功能，暂未提供 Windows 便携包；Windows 用户可先用上游 v1.1.1 正式版（不含新功能），或按开发指南从源码运行。macOS 预览版目前不支持 Intel Mac。由于尚未经过苹果公证，首次打开时需要在“系统设置 > 隐私与安全性”中手动允许。Windows 和 macOS 安装包均已包含运行所需组件，普通用户无需安装 Python、Node.js、Codex CLI、FFmpeg 或 ESP-IDF。
+当前仓库的 v1.3.0-ble.1 预发布线包含蓝牙精简模式、屏上批准 Claude Code 权限请求、开机动画等新功能，暂未提供 Windows 便携包；Windows 用户可先用上游 v1.1.1 正式版（不含新功能），或按开发指南从源码运行。macOS 预览版目前不支持 Intel Mac。由于尚未经过苹果公证，首次打开时需要在“系统设置 > 隐私与安全性”中手动允许。Windows 和 macOS 安装包均已包含运行所需组件，普通用户无需安装 Python、Node.js、Codex CLI、FFmpeg 或 ESP-IDF。
 
 ## 使用前准备
 
@@ -45,8 +45,8 @@ Dotii 是一套由 ESP32-S3 圆形 AMOLED 桌面屏与 Windows/macOS 端“Dotii
 
 ## macOS 快速上手
 
-1. 从 [macOS Release](../../releases/tag/v1.2.0-ble.1-macos.1) 下载 DMG。当前版本仅支持 Apple Silicon Mac 和 macOS 13 及以上。
-2. 打开 DMG，将 `DotiiManagementCenter-1.2.0-ble.1.app` 拖到“应用程序”。
+1. 从 [macOS Release](../../releases/tag/v1.3.0-ble.1-macos.1) 下载 DMG。当前版本仅支持 Apple Silicon Mac 和 macOS 13 及以上。
+2. 打开 DMG，将 `DotiiManagementCenter-1.3.0-ble.1.app` 拖到“应用程序”。
 3. 从“应用程序”打开 Dotii 管理中心。如果系统阻止启动，请打开“系统设置 > 隐私与安全性”，在对应提示旁选择“仍要打开”，然后再次确认。
 4. 首次扫描 Dotii 时允许蓝牙权限；连接 Dotii 或 Bambu 时按系统提示允许本地网络权限。
 5. 应用启动后会驻留在菜单栏。后续烧录、蓝牙配网及模块设置均在管理页面中完成。
@@ -58,7 +58,7 @@ Dotii 是一套由 ESP32-S3 圆形 AMOLED 桌面屏与 Windows/macOS 端“Dotii
 将 DMG 和 `.dmg.sha256` 文件放在同一目录，在终端进入该目录并执行：
 
 ```bash
-shasum -a 256 -c DotiiManagementCenter-macOS-arm64-1.2.0-ble.1.dmg.sha256
+shasum -a 256 -c DotiiManagementCenter-macOS-arm64-1.3.0-ble.1.dmg.sha256
 ```
 
 结果应显示 `OK`；如果校验失败，请不要打开该 DMG。
