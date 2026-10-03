@@ -741,6 +741,7 @@ class BleLinkService:
         with self._bluetooth.lock:
             target = self._address if self._bluetooth.platform.name == "macos" \
                 else self._bluetooth._ble_devices.get(self._address, self._address)
+        session_address = self._address
         resend = asyncio.Event()
 
         def on_sync(_: Any, data: bytearray) -> None:
@@ -782,6 +783,9 @@ class BleLinkService:
                 with self._lock:
                     if self._paused:
                         return  # 暂停：退出会话（async with 退出即断开连接）
+                    # 绑定变化（换地址/解绑）：旧地址的会话不再推送。
+                    if not self._enabled or self._address != session_address:
+                        return
                 payload = self._snapshot_provider().encode("utf-8")
                 content_revision = self._ble_link.payload_revision(payload)
                 force = resend.is_set()

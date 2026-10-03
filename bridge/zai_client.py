@@ -401,7 +401,14 @@ class ZaiService:
                 with self._lock:
                     self._last_error = str(error)[:63]
                 backoff = min(backoff * 2, MAX_BACKOFF_SECONDS)
-            self._stop.wait(backoff)
+            # 退避分片等待：reconfigure 的 _wake 能立即打断——否则改完
+            # API key 最长要等满 600 秒退避才用新配置请求。
+            deadline = time.monotonic() + backoff
+            while not self._stop.is_set() and not self._wake.is_set():
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                self._stop.wait(min(5.0, remaining))
             self._wake.clear()
 
     def snapshot(self) -> dict[str, Any]:
