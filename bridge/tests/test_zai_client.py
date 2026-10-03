@@ -117,6 +117,27 @@ class UsageSnapshotTests(unittest.TestCase):
         expected = datetime.fromtimestamp(1790941648.947).strftime("%m-%d %H:%M")
         self.assertEqual(snapshot["weekly_reset_date"], expected)
 
+    def test_dormant_five_hour_window_is_not_swapped_with_weekly(self) -> None:
+        """5 小时窗休眠期（长时间无 API 使用）：percentage=0 且无重置时间。
+        语义字段（unit/number）必须优先于重置时间排序，否则周窗会被误
+        当成 5 小时窗、休眠窗被当成周窗。"""
+        payload = {
+            "success": True,
+            "data": {"level": "pro", "limits": [
+                {"type": "CREDIT_LIMIT", "unit": 6, "number": 1, "percentage": 72,
+                 "nextResetTime": 1791440113999},
+                {"type": "CREDIT_LIMIT", "unit": 3, "number": 5, "percentage": 0},
+            ]},
+        }
+        snapshot = usage_snapshot(payload)
+        self.assertTrue(snapshot["five_hour_available"])
+        self.assertEqual(snapshot["five_hour_remaining_percent"], 100)
+        self.assertEqual(snapshot["five_hour_reset_date"], "")
+        self.assertTrue(snapshot["weekly_available"])
+        self.assertEqual(snapshot["weekly_remaining_percent"], 28)
+        expected = datetime.fromtimestamp(1791440113.999).strftime("%m-%d %H:%M")
+        self.assertEqual(snapshot["weekly_reset_date"], expected)
+
     def test_single_window_keeps_weekly_unavailable(self) -> None:
         payload = quota_payload(percentage=50)
         snapshot = usage_snapshot(payload)

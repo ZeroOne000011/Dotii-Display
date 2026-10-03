@@ -112,6 +112,16 @@ def _window_fields(item: dict[str, Any]) -> tuple[bool, int, str]:
     return True, int(round(100.0 - used)), reset.strftime("%m-%d %H:%M")[:15] if reset else ""
 
 
+def _is_five_hour_window(item: dict[str, Any]) -> bool:
+    """真实接口以 unit/number 标识窗口：unit=3,number=5 为 5 小时窗。"""
+    return item.get("number") == 5 and item.get("unit") == 3
+
+
+def _is_weekly_window(item: dict[str, Any]) -> bool:
+    """unit=6,number=1 为 1 周窗。"""
+    return item.get("number") == 1 and item.get("unit") == 6
+
+
 def usage_snapshot(payload: Any, now: datetime | None = None) -> dict[str, Any]:
     """把 quota/limit 响应规范化为快照字段（纯函数，缺失数据全部安全降级）。"""
     now = now or datetime.now()
@@ -141,24 +151,38 @@ def usage_snapshot(payload: Any, now: datetime | None = None) -> dict[str, Any]:
     if isinstance(limits, list):
         entries = [item for item in limits if isinstance(item, dict)]
         token_limits = [item for item in entries if item.get("type") == "TOKENS_LIMIT"]
+        five_hour_item: dict[str, Any] | None = None
+        weekly_item: dict[str, Any] | None = None
         if token_limits:
-            windows = [token_limits[0]]
+            five_hour_item = token_limits[0]
         else:
-            # 真实接口使用 CREDIT_LIMIT 并以 unit/number 区分 5 小时与周窗口；
-            # 重置时间最早的一项即短窗口，最晚的一项为周窗口。
+            # 真实接口使用 CREDIT_LIMIT，并以 unit/number 语义标识窗口
+            # （unit=3,number=5 = 5 小时；unit=6,number=1 = 1 周）。5 小时窗
+            # 休眠期（长时间无 API 使用）percentage=0 且无 nextResetTime，
+            # 按重置时间排序会把周窗误排为短窗口——优先语义匹配。
             credit_limits = [item for item in entries if item.get("type") == "CREDIT_LIMIT"]
-            credit_limits.sort(key=_reset_epoch)
-            windows = credit_limits[:2]
-        if windows:
-            available, remaining, reset = _window_fields(windows[0])
+            five_hour_item = next(
+                (item for item in credit_limits if _is_five_hour_window(item)), None)
+            weekly_item = next(
+                (item for item in credit_limits if _is_weekly_window(item)), None)
+            if five_hour_item is None or weekly_item is None:
+                # 兜底：接口无语义标识时按重置时间排序取前两个。
+                ordered = sorted(credit_limits, key=_reset_epoch)
+                if five_hour_item is None and ordered:
+                    five_hour_item = ordered[0]
+                if weekly_item is None:
+                    rest = [item for item in ordered if item is not five_hour_item]
+                    weekly_item = rest[0] if rest else None
+        if five_hour_item is not None:
+            available, remaining, reset = _window_fields(five_hour_item)
             if available:
                 result["five_hour_available"] = True
                 result["five_hour_remaining_percent"] = remaining
                 result["five_hour_reset_date"] = reset
             elif not result["error"]:
                 result["error"] = "用量百分比无法解析"
-        if len(windows) > 1:
-            available, remaining, reset = _window_fields(windows[1])
+        if weekly_item is not None:
+            available, remaining, reset = _window_fields(weekly_item)
             if available:
                 result["weekly_available"] = True
                 result["weekly_remaining_percent"] = remaining
