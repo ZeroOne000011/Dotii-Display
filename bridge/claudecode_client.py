@@ -14,7 +14,7 @@ import threading
 import time
 from collections import OrderedDict
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 MAX_SESSIONS = 16
 SESSION_TTL_SECONDS = 24 * 3600.0
@@ -198,9 +198,12 @@ class PermissionBroker:
     Claude Code 照常弹本机权限提示（fail-open）。
     """
 
-    def __init__(self) -> None:
+    def __init__(self, module_enabled: "Callable[[], bool] | None" = None) -> None:
         self._lock = threading.Lock()
         self._enabled = False
+        # Claude Code 模块开关读取（注入，测试传 None 跳过）：模块关闭时
+        # 权限请求直接 fail-open，不让 hook 空等 300 秒。
+        self._module_enabled = module_enabled
         self._pending: "OrderedDict[str, dict[str, Any]]" = OrderedDict()
 
     def set_mode(self, enabled: bool) -> None:
@@ -218,6 +221,8 @@ class PermissionBroker:
     def submit_and_wait(self, payload: Any, timeout: float = PERMISSION_WAIT_SECONDS) -> dict[str, Any] | None:
         """注册一条权限请求并阻塞等待决策；返回 ``{"behavior": ...}`` 或 None。"""
         if not isinstance(payload, dict):
+            return None
+        if self._module_enabled is not None and not self._module_enabled():
             return None
         tool_name = str(payload.get("tool_name") or "")
         if not tool_name:

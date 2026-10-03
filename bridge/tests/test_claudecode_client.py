@@ -329,6 +329,25 @@ class PermissionBrokerTests(unittest.TestCase):
         broker = PermissionBroker()
         self.assertEqual(broker.snapshot()["wait_seconds"], PERMISSION_WAIT_SECONDS)
 
+    def test_module_disabled_fails_open_immediately(self) -> None:
+        """Claude Code 模块关闭时权限请求不入队、立即空体回落本机提示。"""
+        broker = PermissionBroker(module_enabled=lambda: False)
+        broker.set_mode(True)
+        decision = broker.submit_and_wait(
+            self._submit(broker, "Bash", tool_input={"command": "ls"}))
+        self.assertIsNone(decision)
+        self.assertIsNone(broker.snapshot()["pending"])
+
+        enabled_broker = PermissionBroker(module_enabled=lambda: True)
+        enabled_broker.set_mode(True)
+        thread, result = self._submit_in_thread(
+            enabled_broker, self._submit(enabled_broker, "Bash", tool_input={"command": "ls"}))
+        pending = enabled_broker.snapshot()["pending"]
+        self.assertIsNotNone(pending)
+        enabled_broker.resolve(pending["id"], True)
+        thread.join(2.0)
+        self.assertEqual(result["decision"], {"behavior": "allow"})
+
 
 if __name__ == "__main__":
     unittest.main()

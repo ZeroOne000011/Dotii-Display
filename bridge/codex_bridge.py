@@ -643,6 +643,10 @@ def dotii_state(snapshot: dict[str, Any], bambu: dict[str, Any], enabled: bool,
         state_id, reason = "claudecode_failure", "Claude Code 任务需要处理"
     elif bambu_connected and bambu_status == "fault":
         state_id, reason = "bambu_failure", "Bambu 打印机需要处理"
+    elif claudecode_permission_pending:
+        # 权限等待有时限且需要用户在设备上操作，排在一切常态（working/
+        # printing/offline）之前，否则屏上批准形同虚设。
+        state_id, reason = "claudecode_waiting_user", "Claude Code 等待你的批准"
     elif codex_status == "offline":
         state_id, reason = "connecting", "正在等待管理中心数据"
     elif codex_status == "working":
@@ -1497,9 +1501,8 @@ class BridgeHandler(BaseHTTPRequestHandler):
             if self._deny_nonlocal():
                 return
             try:
+                # 大小上限由 _read_json 的 MAX_BODY 兜底。
                 payload = self._read_admin_action()
-                if len(json.dumps(payload)[:65536]) > 65536:
-                    raise ValueError("事件内容过大")
                 self.bridge.claudecode.record_event(payload)
                 self._send_json(HTTPStatus.OK, {"ok": True})
             except (OSError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as error:
@@ -1569,7 +1572,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
                     raise ValueError("需要字符串 id 与布尔 allow")
                 resolved = self.bridge.claudecode_permission.resolve(request_id, allow)
                 self._send_json(HTTPStatus.OK, {"ok": True, "resolved": resolved})
-            except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as error:
+            except (OSError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as error:
                 self._send_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
             return
         if path == "/api/v1/admin/claudecode/remote":
@@ -1872,7 +1875,8 @@ def main() -> None:
     )
     zai.start()
     claudecode = ClaudeCodeMonitor()
-    claudecode_permission = PermissionBroker()
+    claudecode_permission = PermissionBroker(
+        module_enabled=lambda: modules.read()["claudecode"])
     claudecode_config = ClaudeCodeConfigStore(writable_root / "claudecode.json")
     claudecode_permission.set_mode(claudecode_config.read()["remote_approve_enabled"])
     bluetooth = BluetoothBridge(writable_root)
@@ -1887,6 +1891,8 @@ def main() -> None:
 
     ble_link = BleLinkService(bluetooth, writable_root, _snapshot_json,
                               on_decision=claudecode_permission.resolve)
+    # BLE 推送长连接活跃时，状态探测 monitor 跳过（设备只接受一个中心连接）。
+    bluetooth.link_active_probe = lambda: bool(ble_link.snapshot().get("connected"))
     bluetooth.on_configured = lambda address, mode: ble_link.set_binding(
         enabled=mode == "ble", address=address)
     ble_link.start()

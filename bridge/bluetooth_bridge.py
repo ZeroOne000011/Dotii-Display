@@ -155,6 +155,8 @@ class BluetoothBridge:
         self.lock = threading.RLock()
         self.operation_lock = threading.Lock()
         self.stop_event = threading.Event()
+        # BLE 推送长连接活跃探测（main() 装配注入）；活跃时 monitor 让路。
+        self.link_active_probe: "Callable[[], bool] | None" = None
         self.worker: threading.Thread | None = None
         self.monitor: threading.Thread | None = None
         self.devices: list[dict[str, Any]] = []
@@ -528,6 +530,11 @@ class BluetoothBridge:
         first_run = True
         while first_run or not self.stop_event.wait(15):
             first_run = False
+            # BLE 精简模式长连接占用设备（同一时刻只接受一个中心连接），
+            # 推送会话活跃时跳过状态探测，避免周期性打断推送。
+            probe = self.link_active_probe
+            if probe is not None and probe():
+                continue
             if not self.last_address or not self.dependency_ready() or not self.operation_lock.acquire(False):
                 continue
             try:
@@ -637,8 +644,11 @@ class BleLinkService:
         with self._lock:
             data = {"enabled": self._enabled, "address": self._address}
         self._config_path.parent.mkdir(parents=True, exist_ok=True)
-        self._config_path.write_text(
+        # 原子写：断电/崩溃留下的半个 JSON 会让绑定静默丢失（与 store 惯例一致）。
+        temporary = self._config_path.with_name(self._config_path.name + ".tmp")
+        temporary.write_text(
             json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        temporary.replace(self._config_path)
 
     def set_binding(self, enabled: bool, address: str = "") -> None:
         with self._lock:
@@ -790,13 +800,8 @@ class BleLinkService:
                         self._revision = sequence
                         import time as _time
                         self._pushed_at = _time.time()
-                try:
-                    await asyncio.wait_for(asyncio.shield(_stop_async(self._stop)), timeout=2.0)
+                # 2 秒推送节拍；不能用 wait_for+shield 等 stop——超时后 shield
+                # 内层任务无人取消，每轮泄漏一个存活任务（长连接 CPU 线性劣化）。
+                await asyncio.sleep(2.0)
+                if self._stop.is_set():
                     break
-                except TimeoutError:
-                    pass
-
-
-async def _stop_async(event: threading.Event) -> None:
-    while not event.is_set():
-        await asyncio.sleep(0.2)

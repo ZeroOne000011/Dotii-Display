@@ -171,6 +171,8 @@ static lv_obj_t *s_boot_mouth;
 static lv_timer_t *s_boot_timer;
 static uint32_t s_boot_started;
 static uint32_t s_wait_baseline_activity;
+/* 权限确认页自动切页被转场 pending 挡住时的待切标志（ui_timer 每秒重试）。 */
+static bool s_perm_switch_pending;
 static lv_obj_t *s_dotii_accent_left;
 static lv_obj_t *s_dotii_accent_right;
 static lv_obj_t *s_dotii_accent_center;
@@ -1451,7 +1453,11 @@ static void claudecode_decision_event(lv_event_t *event)
     if (lv_event_get_code(event) != LV_EVENT_CLICKED) return;
     if (s_last_gesture_at != 0 && lv_tick_elaps(s_last_gesture_at) < 350) return;
     bool allow = lv_event_get_user_data(event) != NULL;
-    connectivity_claudecode_decision(s_snapshot.claudecode_perm_id, allow);
+    /* 上行失败（未连接/队列满）时留在确认页，用户可重试或右滑离开；
+       静默切走会让"点了批准"实际没送达。 */
+    if (!connectivity_claudecode_decision(s_snapshot.claudecode_perm_id, allow)) {
+        return;
+    }
     if (s_current == s_claudecode_confirm) load_screen(s_dotii, true);
 }
 
@@ -2200,6 +2206,7 @@ static void build_dotii(void)
 
 /* 播完（或点按跳过）进等待屏：Dotii connecting 表情 + 连接状态小字，
    首份真实数据到达且用户未交互时再自动进入正常页面。 */
+static bool claudecode_perm_waiting(void);
 static void boot_anim_finish(void)
 {
     if (s_boot_timer != NULL) {
@@ -2207,7 +2214,8 @@ static void boot_anim_finish(void)
         s_boot_timer = NULL;
         lv_timer_del(timer);
     }
-    load_screen(s_dotii, false);
+    /* 动画期间权限请求已到达时直接去确认页（否则 2s 窗口会抢切回表情页）。 */
+    load_screen(claudecode_perm_waiting() ? s_claudecode_confirm : s_dotii, false);
     /* 基准取 load 之后：load_screen 内部会刷新 s_last_activity，之后用户
        任何交互都会改变它——首真数据到达时以"是否仍等于基准"判断无人操作。 */
     s_wait_baseline_activity = s_last_activity;
@@ -2566,11 +2574,13 @@ static void layout_quick_buttons(const codex_snapshot_t *snapshot)
 }
 
 /* Claude Code 权限请求等待中：期间豁免自动返回/熄屏/睡眠（300s 请求超时
-   是自然恢复上限），并由新请求边沿触发自动切到详情页。 */
+   是自然恢复上限），并由新请求边沿触发自动切到详情页。本地校验过期——
+   断连后快照冻结在 pending 态时，豁免不能永久成立（电池耗尽）。 */
 static bool claudecode_perm_waiting(void)
 {
     return s_snapshot.claudecode_enabled && s_snapshot.claudecode_perm_enabled &&
-           s_snapshot.claudecode_perm_pending;
+           s_snapshot.claudecode_perm_pending &&
+           s_snapshot.claudecode_perm_expires > time(NULL);
 }
 
 static void update_snapshot(const codex_snapshot_t *snapshot)
@@ -2842,6 +2852,7 @@ static void update_snapshot(const codex_snapshot_t *snapshot)
             strlcpy(s_perm_seen_id, snapshot->claudecode_perm_id, sizeof(s_perm_seen_id));
             if (s_current != s_settings && s_current != s_control && s_current != s_power) {
                 if (s_screen_saver_active) exit_screen_saver();
+                if (!s_screen_on) screen_wake();
                 lv_label_set_text_fmt(s_confirm_title, "%s · %s",
                                       snapshot->claudecode_perm_project[0]
                                           ? snapshot->claudecode_perm_project : "Claude Code",
@@ -2849,7 +2860,13 @@ static void update_snapshot(const codex_snapshot_t *snapshot)
                 lv_label_set_text(s_confirm_preview,
                                   snapshot->claudecode_perm_preview[0]
                                       ? snapshot->claudecode_perm_preview : "--");
-                load_screen(s_claudecode_confirm, true);
+                /* 转场 pending（翻页窗口/屏保退出）会静默吞掉这次切页——
+                   置待切标志由 ui_timer 重试，同 id 不再触发边沿所以必须补。 */
+                if (s_screen_load_pending) {
+                    s_perm_switch_pending = true;
+                } else {
+                    load_screen(s_claudecode_confirm, true);
+                }
             }
         }
         if (!perm_waiting) {
@@ -3018,12 +3035,22 @@ static void ui_timer(lv_timer_t *timer)
         }
     }
 
+    /* 权限确认页切页重试：上一份快照的切页被转场 pending 挡住时补切。 */
+    if (s_perm_switch_pending) {
+        if (!claudecode_perm_waiting() || s_current == s_claudecode_confirm ||
+            s_current == s_settings || s_current == s_control || s_current == s_power) {
+            s_perm_switch_pending = false;
+        } else if (!s_screen_load_pending) {
+            s_perm_switch_pending = false;
+            load_screen(s_claudecode_confirm, true);
+        }
+    }
+
     char summary[80];
     connectivity_get_summary(summary, sizeof(summary));
     lv_label_set_text(s_settings_wifi, summary);
     connectivity_get_ip(summary, sizeof(summary));
     lv_label_set_text_fmt(s_settings_ip, "IP %s", summary);
-    (void)summary;
     {
         const bool link_ble = device_config_get()->link_mode == DEVICE_LINK_MODE_BLE;
         const bool link_online = link_ble ? ble_bridge_is_connected()

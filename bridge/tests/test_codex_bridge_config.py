@@ -63,6 +63,18 @@ class CodexUiConfigTests(unittest.TestCase):
         )
         self.assertEqual(settled["state"], "idle")
 
+    def test_pending_permission_outranks_codex_working_and_bambu_printing(self) -> None:
+        """权限请求有时限且需设备操作，不得被 Codex/Bambu 常态掩埋。"""
+        state = dotii_state(
+            {"codex": {"task": {"status": "working"}}},
+            {"configured": True, "connected": True, "status": "printing"},
+            True,
+            default_dotii_config(),
+            claudecode={"connected": True, "status": "idle",
+                        "permission": {"pending": {"id": "x", "tool": "Bash"}}},
+        )
+        self.assertEqual(state["state"], "claudecode_waiting_user")
+
     def test_module_config_migrates_dotii_as_enabled(self) -> None:
         modules = validate_module_config({"codex": True, "bambu": False})
         self.assertEqual(modules, {"codex": True, "bambu": False, "zai": False, "claudecode": False, "dotii": True})

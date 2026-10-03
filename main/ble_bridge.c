@@ -188,7 +188,8 @@ static int handle_command(struct os_mbuf *om)
     uint16_t length = 0;
     if (ble_hs_mbuf_to_flat(om, buffer, sizeof(buffer), &length) != 0 || length < 1) {
         return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
-    }    if (buffer[0] == 1) {
+    }
+    if (buffer[0] == 1) {
         if (length != 7) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
         size_t expected = (size_t)buffer[1] | ((size_t)buffer[2] << 8);
         if (expected == 0 || expected > RX_MAX) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;

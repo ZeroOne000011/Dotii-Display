@@ -107,14 +107,6 @@ typedef struct {
     bool overflow;
 } image_body_t;
 
-static void copy_json_string(cJSON *parent, const char *name, char *destination, size_t destination_size)
-{
-    cJSON *item = cJSON_GetObjectItemCaseSensitive(parent, name);
-    if (cJSON_IsString(item) && item->valuestring != NULL) {
-        strlcpy(destination, item->valuestring, destination_size);
-    }
-}
-
 static size_t utf8_char_length(const char *text, size_t available)
 {
     unsigned char lead = (unsigned char)text[0];
@@ -127,6 +119,25 @@ static size_t utf8_char_length(const char *text, size_t available)
         if (((unsigned char)text[index] & 0xC0) != 0x80) return 1;
     }
     return length;
+}
+
+static void copy_json_string(cJSON *parent, const char *name, char *destination, size_t destination_size)
+{
+    cJSON *item = cJSON_GetObjectItemCaseSensitive(parent, name);
+    if (cJSON_IsString(item) && item->valuestring != NULL) {
+        /* 按完整 UTF-8 字符拷贝：strlcpy 的字节级截断会把中文撕裂成
+           非法序列（LVGL 渲染乱码），权限摘要/项目名尤其常见。 */
+        size_t out = 0;
+        const char *text = item->valuestring;
+        while (*text != '\0' && out + 1 < destination_size) {
+            size_t length = utf8_char_length(text, strlen(text));
+            if (length == 0 || out + length >= destination_size) break;
+            memcpy(destination + out, text, length);
+            out += length;
+            text += length;
+        }
+        destination[out] = '\0';
+    }
 }
 
 static bool plain_append(char *destination, size_t destination_size, size_t *out,
@@ -1062,10 +1073,17 @@ static bool fetch_snapshot(codex_snapshot_t *snapshot)
         heap_caps_free(response.body);
         return false;
     }
+    /* 解析与任务缓存（s_work_snapshot/s_work_tasks，含堆指针）与 BLE 推送
+       路径共用，必须持 s_parse_lock——双链路并发解析会 double-free/堆损坏。 */
+    if (!xSemaphoreTake(s_parse_lock, pdMS_TO_TICKS(500))) {
+        heap_caps_free(response.body);
+        return false;
+    }
     bool parsed = parse_snapshot(response.body, snapshot);
     heap_caps_free(response.body);
     /* 种子的 preview-thread 任务与示例图不上屏。 */
     if (parsed && !snapshot->preview_data) app_state_tasks_publish(s_work_tasks, s_work_task_count);
+    xSemaphoreGive(s_parse_lock);
     if (parsed && !snapshot->preview_data && snapshot->custom_image_available &&
         !fetch_custom_image(snapshot->custom_image_revision)) {
         snapshot->custom_image_available = false;
@@ -1199,6 +1217,8 @@ bool connectivity_ingest_snapshot(const char *json, uint32_t length)
     bool ok = false;
     if (parse_snapshot(json, &s_work_snapshot)) {
         calibrate_clock_from_snapshot(s_work_snapshot.generated_at);
+        /* 种子的 preview-thread 任务不上屏。 */
+        if (!s_work_snapshot.preview_data) app_state_tasks_publish(s_work_tasks, s_work_task_count);
         /* 种子快照照常上屏（页面结构与实时模块数据需要）；真实数据记账
            只记非种子快照，断连回落才不会显示种子数值。 */
         app_state_publish(&s_work_snapshot);
@@ -1342,7 +1362,9 @@ void connectivity_start(void)
         ESP_LOGE(TAG, "Unable to create bridge task");
     }
     if (device_config->link_mode == DEVICE_LINK_MODE_BLE) {
-        /* 蓝牙精简模式：不起 Wi-Fi，快照由 BLE 通道推送。 */
+        /* 蓝牙精简模式：不起 Wi-Fi，快照由 BLE 通道推送。bridge_task 仍运行——
+           其周期超时是 stale/offline 状态上屏的唯一机制（BLE 断连后由
+           publish_offline_state 驱动回落），HTTP 轮询因无 Wi-Fi 永不触发。 */
         strlcpy(s_bridge_note, "等待蓝牙连接", sizeof(s_bridge_note));
         ESP_LOGI(TAG, "BLE link mode: Wi-Fi station disabled");
         ESP_LOGI(TAG, "Connectivity services started (BLE)");

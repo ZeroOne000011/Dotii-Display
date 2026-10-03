@@ -1,13 +1,14 @@
 """BLE 数据通道协议（快照分包推送）.
 
-管理中心（central）通过 SNAPSHOT 特征 NOTIFY 推送完整快照 JSON，设备
-（peripheral）校验后走与 Wi-Fi 相同的 parse_snapshot 路径。分包格式：
+管理中心（central）向 SNAPSHOT 特征逐包写入完整快照 JSON（write，加密），
+设备（peripheral）校验后走与 Wi-Fi 相同的 parse_snapshot 路径。分包格式：
 
     [0x01][总长 LE16][CRC32 LE32][revision LE32]   头
     [0x02][块 ≤ chunk] × N                          数据
     [0x03]                                           尾
 
-SYNC 特征（设备 → 管理中心）控制包：``[0x00]`` 心跳、``[0x01]`` 请求重发。
+SYNC 特征（设备 → 管理中心，read+notify）携带 JSON notice：
+``{"resend": bool}`` 请求重发、``{"decision": {"id", "allow"}}`` 屏上权限决策。
 revision 单调递增，设备拒绝低于已接受值的完整快照（防重连乱序覆盖）。
 """
 from __future__ import annotations
@@ -21,8 +22,6 @@ DEFAULT_CHUNK = 180
 HEADER = 0x01
 BLOCK = 0x02
 TAIL = 0x03
-SYNC_HEARTBEAT = b"\x00"
-SYNC_RESEND = b"\x01"
 
 
 def payload_revision(payload: bytes) -> int:

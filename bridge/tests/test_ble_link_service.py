@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -45,7 +46,7 @@ class FakeClient:
             handler(None, bytearray(notice))
 
 
-def make_service(temporary: str, payloads: list[str]) -> tuple[BleLinkService, SimpleNamespace]:
+def make_service(temporary: str, payloads: list[str], on_decision=None) -> tuple[BleLinkService, SimpleNamespace]:
     bluetooth = SimpleNamespace(
         lock=__import__("threading").Lock(),
         platform=SimpleNamespace(name="macos", bluetooth_pair_on_connect=False),
@@ -59,7 +60,7 @@ def make_service(temporary: str, payloads: list[str]) -> tuple[BleLinkService, S
         calls["count"] += 1
         return payloads[index]
 
-    service = BleLinkService(bluetooth, Path(temporary), provider)
+    service = BleLinkService(bluetooth, Path(temporary), provider, on_decision=on_decision)
     return service, SimpleNamespace(calls=calls)
 
 
@@ -88,6 +89,39 @@ def run_session(service: BleLinkService, *, stop_after_writes: int = 40,
 
 
 class BleLinkServiceTests(unittest.TestCase):
+    def test_sync_decision_notice_resolves_broker(self) -> None:
+        """屏上批准的 BLE 上行：SYNC notice 的 decision 字段转发到 broker.resolve。"""
+        import json as _json
+
+        from claudecode_client import PermissionBroker
+
+        broker = PermissionBroker()
+        broker.set_mode(True)
+        result: dict = {}
+
+        def worker() -> None:
+            result["decision"] = broker.submit_and_wait(
+                {"tool_name": "Bash", "tool_input": {"command": "ls"},
+                 "session_id": "s", "cwd": "/w/p"})
+
+        worker_thread = threading.Thread(target=worker, daemon=True)
+        worker_thread.start()
+        deadline = time.time() + 2.0
+        while broker.snapshot()["pending"] is None and time.time() < deadline:
+            time.sleep(0.01)
+        request_id = broker.snapshot()["pending"]["id"]
+
+        with tempfile.TemporaryDirectory(dir=BRIDGE.parent / ".codx") as temporary:
+            service, _ = make_service(temporary, ['{"a":1}'], on_decision=broker.resolve)
+            service.set_binding(True, "AA-BB")
+            client = run_session(service, stop_after_writes=1)
+            asyncio.run(client.emulate_sync(_json.dumps(
+                {"resend": False, "decision": {"id": request_id, "allow": True}}).encode("utf-8")))
+            worker_thread.join(2.0)
+
+        self.assertEqual(result["decision"], {"behavior": "allow"})
+        self.assertIsNone(broker.snapshot()["pending"])
+
     def test_binds_and_persists(self) -> None:
         with tempfile.TemporaryDirectory(dir=BRIDGE.parent / ".codx") as temporary:
             service, _ = make_service(temporary, ['{"a":1}'])

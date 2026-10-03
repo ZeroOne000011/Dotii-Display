@@ -79,7 +79,7 @@ typedef struct {
 #define CLAUDECODE_PERM_ID_MAX 16
 #define CLAUDECODE_PERM_TOOL_MAX 20
 #define CLAUDECODE_PERM_PREVIEW_MAX 96
-#define CLAUDECODE_PERM_PROJECT_MAX 24
+#define CLAUDECODE_PERM_PROJECT_MAX 48
 
 typedef struct {
     bool valid;
