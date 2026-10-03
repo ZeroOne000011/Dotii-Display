@@ -1,9 +1,5 @@
 menu "Dotii 桌面交互屏"
 
-    config STATE_DISPLAY_DEMO_MODE
-        bool "Show clearly labelled preview data when the bridge is unavailable"
-        default y
-
     config STATE_DISPLAY_WIFI_SSID
         string "Wi-Fi SSID"
         default ""

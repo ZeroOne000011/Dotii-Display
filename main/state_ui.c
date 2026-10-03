@@ -162,6 +162,15 @@ static lv_obj_t *s_custom_footer;
 static lv_obj_t *s_dotii_left_eye;
 static lv_obj_t *s_dotii_right_eye;
 static lv_obj_t *s_dotii_mouth;
+static lv_obj_t *s_dotii_connecting_label;
+/* 开机动画屏：黑屏 → 睁眼 → 微笑，播完进等待屏（Dotii connecting 表情）。 */
+static lv_obj_t *s_boot;
+static lv_obj_t *s_boot_left_eye;
+static lv_obj_t *s_boot_right_eye;
+static lv_obj_t *s_boot_mouth;
+static lv_timer_t *s_boot_timer;
+static uint32_t s_boot_started;
+static uint32_t s_wait_baseline_activity;
 static lv_obj_t *s_dotii_accent_left;
 static lv_obj_t *s_dotii_accent_right;
 static lv_obj_t *s_dotii_accent_center;
@@ -827,7 +836,9 @@ static void make_reset_metric(lv_obj_t *parent, int x)
 
 static bool page_enabled(uint8_t page)
 {
-    if (!s_snapshot.valid) return page < 2;
+    /* 无任何快照时只剩 Dotii 等待屏（等待真实数据），数据页不强制显示——
+       页面结构由快照 modules 驱动，等数据到了自然恢复。 */
+    if (!s_snapshot.valid) return page == 5;
     if (page == 0) return s_snapshot.codex_enabled;
     if (page == 1) return s_snapshot.bambu_enabled;
     if (page == 2) return s_snapshot.zai_enabled;
@@ -934,7 +945,7 @@ static void build_main(void)
     lv_obj_set_size(s_main_arc, SCREEN_SIZE, SCREEN_SIZE);
     lv_obj_center(s_main_arc);
     lv_arc_set_range(s_main_arc, 0, 100);
-    lv_arc_set_value(s_main_arc, 68);
+    lv_arc_set_value(s_main_arc, 0);
     lv_arc_set_bg_angles(s_main_arc, 140, 400);
     lv_obj_set_style_arc_width(s_main_arc, 26, LV_PART_MAIN);
     lv_obj_set_style_arc_color(s_main_arc, color(0x232928), LV_PART_MAIN);
@@ -950,7 +961,7 @@ static void build_main(void)
 
     lv_obj_t *kicker = make_label(s_main_content, "周剩余", &ui_font_chinese_semibold_24, COLOR_MUTED);
     lv_obj_align(kicker, LV_ALIGN_CENTER, 0, -82);
-    s_percent = make_label(s_main_content, "68%", &ui_font_digits_64, COLOR_TEXT);
+    s_percent = make_label(s_main_content, "--", &ui_font_digits_64, COLOR_TEXT);
     lv_obj_set_style_transform_scale(s_percent, 282, 0);
     lv_obj_align(s_percent, LV_ALIGN_CENTER, 0, -19);
 
@@ -974,7 +985,7 @@ static void build_main(void)
     lv_obj_set_style_radius(s_status_dot, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_color(s_status_dot, color(COLOR_GREEN), 0);
     lv_obj_set_style_bg_opa(s_status_dot, LV_OPA_COVER, 0);
-    s_status = make_label(s_status_pill, "工作中", &s_ui_font, COLOR_GREEN);
+    s_status = make_label(s_status_pill, "离线", &s_ui_font, COLOR_MUTED);
     lv_obj_set_size(s_status, 82, 22);
     lv_obj_set_style_text_align(s_status, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_transform_scale(s_status, 282, 0);
@@ -1134,7 +1145,7 @@ static void build_plus_main(void)
     lv_obj_remove_style_all(status_right_gap);
     lv_obj_set_size(status_right_gap, 12, 1);
 
-    s_plus_status = make_label(status_content, "工作中", &s_ui_font, COLOR_GREEN);
+    s_plus_status = make_label(status_content, "离线", &s_ui_font, COLOR_MUTED);
     lv_obj_set_height(s_plus_status, 26);
     lv_obj_set_style_text_align(s_plus_status, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_transform_scale(s_plus_status, 310, 0);
@@ -1972,6 +1983,10 @@ static bool dotii_idle_fallback_active(void)
 
 static dotii_expression_t active_dotii_expression(void)
 {
+    /* 无真实数据（未连接或纯种子且无在线模块）期间统一播连接中表情。 */
+    if (!app_state_has_real_data(&s_snapshot)) {
+        return DOTII_EXPRESSION_CONNECTING;
+    }
     if (dotii_touch_active()) {
         return s_snapshot.dotii_touch_expression;
     }
@@ -2166,9 +2181,93 @@ static void build_dotii(void)
     s_dotii_accent_left = make_dotii_part(s_dotii, 12, 12, -132, 52, COLOR_CYAN);
     s_dotii_accent_right = make_dotii_part(s_dotii, 12, 12, 132, 52, COLOR_CYAN);
     s_dotii_accent_center = make_dotii_part(s_dotii, 12, 12, 0, 88, COLOR_CYAN);
+    /* 等待真实数据期间的连接状态小字（无数据时显示，真数据到达后隐藏）。 */
+    s_dotii_connecting_label = make_label(s_dotii, "", &ui_font_detail_20, COLOR_MUTED);
+    lv_obj_align(s_dotii_connecting_label, LV_ALIGN_BOTTOM_MID, 0, -48);
+    lv_obj_add_flag(s_dotii_connecting_label, LV_OBJ_FLAG_HIDDEN);
     /* Like the custom canvas, Dotii is an immersive ambient page and does not
        show the global navigation dots. */
     render_dotii_expression();
+}
+
+/* -- 开机动画屏 ------------------------------------------------ */
+
+#define BOOT_TOTAL_MS 2000U
+#define BOOT_EYE_START_MS 200U
+#define BOOT_EYE_END_MS 1200U
+#define BOOT_MOUTH_START_MS 1000U
+#define BOOT_MOUTH_END_MS 1800U
+
+/* 播完（或点按跳过）进等待屏：Dotii connecting 表情 + 连接状态小字，
+   首份真实数据到达且用户未交互时再自动进入正常页面。 */
+static void boot_anim_finish(void)
+{
+    if (s_boot_timer != NULL) {
+        lv_timer_t *timer = s_boot_timer;
+        s_boot_timer = NULL;
+        lv_timer_del(timer);
+    }
+    load_screen(s_dotii, false);
+    /* 基准取 load 之后：load_screen 内部会刷新 s_last_activity，之后用户
+       任何交互都会改变它——首真数据到达时以"是否仍等于基准"判断无人操作。 */
+    s_wait_baseline_activity = s_last_activity;
+}
+
+static void boot_timer_cb(lv_timer_t *timer)
+{
+    (void)timer;
+    const uint32_t elapsed = lv_tick_elaps(s_boot_started);
+    if (elapsed >= BOOT_TOTAL_MS) {
+        boot_anim_finish();
+        return;
+    }
+    /* 睁眼：细缝 8px → 72px，ease-out（先快后慢，像自然睁眼）。 */
+    if (elapsed > BOOT_EYE_START_MS) {
+        uint32_t span = elapsed - BOOT_EYE_START_MS;
+        if (span > BOOT_EYE_END_MS - BOOT_EYE_START_MS) {
+            span = BOOT_EYE_END_MS - BOOT_EYE_START_MS;
+        }
+        const uint32_t phase = (span * 100U) / (BOOT_EYE_END_MS - BOOT_EYE_START_MS);
+        const uint32_t ease = 100U - (100U - phase) * (100U - phase) / 100U;
+        const int eye_height = 8 + (int)(64U * ease / 100U);
+        set_dotii_part(s_boot_left_eye, 52, eye_height, -78, -30, 0xF4EAD2, LV_OPA_COVER);
+        set_dotii_part(s_boot_right_eye, 52, eye_height, 78, -30, 0xF4EAD2, LV_OPA_COVER);
+    }
+    /* 嘴角浮现上扬：细横线 → 微笑弧，透明度同步淡入。 */
+    if (elapsed > BOOT_MOUTH_START_MS) {
+        uint32_t span = elapsed - BOOT_MOUTH_START_MS;
+        if (span > BOOT_MOUTH_END_MS - BOOT_MOUTH_START_MS) {
+            span = BOOT_MOUTH_END_MS - BOOT_MOUTH_START_MS;
+        }
+        const uint32_t phase = (span * 100U) / (BOOT_MOUTH_END_MS - BOOT_MOUTH_START_MS);
+        const int width = 24 + (int)(32U * phase / 100U);
+        const int height = 4 + (int)(8U * phase / 100U);
+        set_dotii_part(s_boot_mouth, width, height, 0, 70, 0xF4EAD2,
+                       (lv_opa_t)(LV_OPA_COVER * phase / 100U));
+    }
+}
+
+static void boot_skip_event(lv_event_t *event)
+{
+    if (lv_event_get_code(event) != LV_EVENT_CLICKED) return;
+    if (s_last_gesture_at != 0 && lv_tick_elaps(s_last_gesture_at) < 350) return;
+    boot_anim_finish();
+}
+
+static void build_boot(void)
+{
+    s_boot = lv_obj_create(NULL);
+    set_screen_background(s_boot);
+    lv_obj_add_event_cb(s_boot, boot_skip_event, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_flag(s_boot, LV_OBJ_FLAG_CLICKABLE);
+
+    s_boot_left_eye = make_dotii_part(s_boot, 52, 8, -78, -30, 0xF4EAD2);
+    s_boot_right_eye = make_dotii_part(s_boot, 52, 8, 78, -30, 0xF4EAD2);
+    s_boot_mouth = make_dotii_part(s_boot, 24, 4, 0, 70, 0xF4EAD2);
+
+    s_boot_started = lv_tick_get();
+    if (s_boot_started == 0) s_boot_started = 1;
+    s_boot_timer = lv_timer_create(boot_timer_cb, 40, NULL);
 }
 
 static lv_obj_t *make_quick_button(lv_obj_t *parent,
@@ -2476,6 +2575,16 @@ static bool claudecode_perm_waiting(void)
 
 static void update_snapshot(const codex_snapshot_t *snapshot)
 {
+    /* 首份真实数据到达：若用户从等待屏出现后从未交互，自动进入正常页面；
+       交互过（已自行滑走浏览）则不打扰。 */
+    static bool s_seen_real_data = false;
+    if (!s_seen_real_data && app_state_has_real_data(snapshot)) {
+        s_seen_real_data = true;
+        if (s_current == s_dotii && s_wait_baseline_activity != 0 &&
+            s_last_activity == s_wait_baseline_activity) {
+            load_screen(first_enabled_screen(), true);
+        }
+    }
     if (!s_dotii_state_seen || snapshot->dotii_state_token != s_dotii_state_token ||
         snapshot->dotii_state_assigned != s_dotii_state_assigned ||
         snapshot->dotii_state_duration_ms != s_dotii_state_duration_ms ||
@@ -2519,7 +2628,8 @@ static void update_snapshot(const codex_snapshot_t *snapshot)
         }
         if (s_current != NULL) lv_obj_invalidate(s_current);
     }
-    if (!snapshot->valid || snapshot->stale || !snapshot->weekly_available) {
+    if (!snapshot->valid || snapshot->stale || snapshot->preview_data ||
+        !snapshot->weekly_available) {
         lv_label_set_text(s_percent, "--");
         lv_arc_set_value(s_main_arc, 0);
         lv_obj_set_style_arc_color(s_main_arc, color(0x59605E), LV_PART_INDICATOR);
@@ -2529,12 +2639,14 @@ static void update_snapshot(const codex_snapshot_t *snapshot)
         lv_obj_set_style_arc_color(s_main_arc, color(COLOR_BLUE), LV_PART_INDICATOR);
     }
 
+    const codex_task_status_t codex_status = snapshot->preview_data
+        ? CODEX_STATUS_OFFLINE : snapshot->status;
     uint32_t status_color = COLOR_MUTED;
-    if (snapshot->status == CODEX_STATUS_WORKING || snapshot->status == CODEX_STATUS_COMPLETED) status_color = COLOR_GREEN;
-    else if (snapshot->status == CODEX_STATUS_WAITING) status_color = COLOR_WARNING;
-    else if (snapshot->status == CODEX_STATUS_FAILED) status_color = COLOR_DANGER;
-    lv_label_set_text(s_status, app_state_status_text(snapshot->status));
-    bool long_status = snapshot->status == CODEX_STATUS_OFFLINE;
+    if (codex_status == CODEX_STATUS_WORKING || codex_status == CODEX_STATUS_COMPLETED) status_color = COLOR_GREEN;
+    else if (codex_status == CODEX_STATUS_WAITING) status_color = COLOR_WARNING;
+    else if (codex_status == CODEX_STATUS_FAILED) status_color = COLOR_DANGER;
+    lv_label_set_text(s_status, app_state_status_text(codex_status));
+    bool long_status = codex_status == CODEX_STATUS_OFFLINE;
     lv_obj_set_width(s_status_pill, long_status ? 172 : 138);
     lv_obj_set_width(s_status, long_status ? 116 : 82);
     lv_obj_set_style_text_color(s_status, color(status_color), 0);
@@ -2560,7 +2672,8 @@ static void update_snapshot(const codex_snapshot_t *snapshot)
         lv_label_set_text(s_reset_time, "");
     }
 
-    if (!snapshot->valid || snapshot->stale || !snapshot->five_hour_available) {
+    if (!snapshot->valid || snapshot->stale || snapshot->preview_data ||
+        !snapshot->five_hour_available) {
         lv_label_set_text(s_plus_five_percent, "--");
         lv_arc_set_value(s_plus_five_arc, 0);
         lv_obj_set_style_arc_color(s_plus_five_arc, color(0x59605E), LV_PART_INDICATOR);
@@ -2571,7 +2684,8 @@ static void update_snapshot(const codex_snapshot_t *snapshot)
         lv_obj_set_style_arc_color(s_plus_five_arc, color(COLOR_ORANGE), LV_PART_INDICATOR);
         set_usage_reset_text(s_plus_five_reset, snapshot->five_hour_reset_date, true);
     }
-    if (!snapshot->valid || snapshot->stale || !snapshot->weekly_available) {
+    if (!snapshot->valid || snapshot->stale || snapshot->preview_data ||
+        !snapshot->weekly_available) {
         lv_label_set_text(s_plus_weekly_percent, "--");
         lv_arc_set_value(s_plus_weekly_arc, 0);
         lv_obj_set_style_arc_color(s_plus_weekly_arc, color(0x59605E), LV_PART_INDICATOR);
@@ -2892,6 +3006,18 @@ static void ui_timer(lv_timer_t *timer)
                                    : (link_online ? "Wi-Fi 模式 · 已连接" : "Wi-Fi 模式 · 待连接"));
     }
 
+    /* 等待屏连接状态小字：无真实数据（未连接或纯种子）期间显示。 */
+    if (s_dotii_connecting_label != NULL) {
+        if (!app_state_has_real_data(&s_snapshot)) {
+            const bool ble_wait = device_config_get()->link_mode == DEVICE_LINK_MODE_BLE;
+            lv_label_set_text(s_dotii_connecting_label,
+                              ble_wait ? "等待蓝牙连接" : "正在连接 Wi-Fi");
+            lv_obj_clear_flag(s_dotii_connecting_label, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(s_dotii_connecting_label, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+
     char summary[80];
     connectivity_get_summary(summary, sizeof(summary));
     lv_label_set_text(s_settings_wifi, summary);
@@ -2959,7 +3085,11 @@ void state_ui_start(QueueHandle_t snapshot_queue)
     build_settings();
     build_control();
     build_power();
-    s_current = page_screen(0);
+    build_boot();
+    /* 开机第一屏是睁眼微笑动画，播完进等待屏（真实数据到达再进正常页面）。
+       必须显式激活 boot 屏——只赋值 s_current 不会切换 LVGL 活动屏。 */
+    s_current = s_boot;
+    lv_screen_load(s_boot);
     s_last_activity = lv_tick_get();
     lv_obj_invalidate(s_current);
     /* Push one complete first frame while the caller still owns the BSP LVGL

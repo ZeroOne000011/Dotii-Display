@@ -1064,12 +1064,13 @@ static bool fetch_snapshot(codex_snapshot_t *snapshot)
     }
     bool parsed = parse_snapshot(response.body, snapshot);
     heap_caps_free(response.body);
-    if (parsed) app_state_tasks_publish(s_work_tasks, s_work_task_count);
-    if (parsed && snapshot->custom_image_available &&
+    /* 种子的 preview-thread 任务与示例图不上屏。 */
+    if (parsed && !snapshot->preview_data) app_state_tasks_publish(s_work_tasks, s_work_task_count);
+    if (parsed && !snapshot->preview_data && snapshot->custom_image_available &&
         !fetch_custom_image(snapshot->custom_image_revision)) {
         snapshot->custom_image_available = false;
     }
-    if (parsed && snapshot->bambu_camera_available &&
+    if (parsed && !snapshot->preview_data && snapshot->bambu_camera_available &&
         !fetch_bambu_camera(snapshot->bambu_camera_revision)) {
         snapshot->bambu_camera_available = false;
     }
@@ -1171,9 +1172,8 @@ static void publish_offline_state(void)
         s_work_snapshot.stale = s_work_snapshot.generated_at > 0 && now > s_work_snapshot.generated_at &&
                                 (now - s_work_snapshot.generated_at) > CONFIG_STATE_DISPLAY_STALE_SECONDS;
         if (s_work_snapshot.stale) s_work_snapshot.status = CODEX_STATUS_OFFLINE;
-    } else if (CONFIG_STATE_DISPLAY_DEMO_MODE) {
-        app_state_make_preview(&s_work_snapshot);
     } else {
+        /* 无任何真实数据：全零快照（valid=false），屏显等待屏而不是假数值。 */
         memset(&s_work_snapshot, 0, sizeof(s_work_snapshot));
         s_work_snapshot.status = CODEX_STATUS_OFFLINE;
     }
@@ -1199,10 +1199,16 @@ bool connectivity_ingest_snapshot(const char *json, uint32_t length)
     bool ok = false;
     if (parse_snapshot(json, &s_work_snapshot)) {
         calibrate_clock_from_snapshot(s_work_snapshot.generated_at);
-        s_last_snapshot = s_work_snapshot;
-        s_have_snapshot = true;
-        strlcpy(s_bridge_note, "蓝牙已连接", sizeof(s_bridge_note));
+        /* 种子快照照常上屏（页面结构与实时模块数据需要）；真实数据记账
+           只记非种子快照，断连回落才不会显示种子数值。 */
         app_state_publish(&s_work_snapshot);
+        if (app_state_has_real_data(&s_work_snapshot)) {
+            s_last_snapshot = s_work_snapshot;
+            s_have_snapshot = true;
+            strlcpy(s_bridge_note, "蓝牙已连接", sizeof(s_bridge_note));
+        } else {
+            strlcpy(s_bridge_note, "蓝牙已连接 · 等待真实数据", sizeof(s_bridge_note));
+        }
         ok = true;
     }
     xSemaphoreGive(s_parse_lock);
@@ -1232,12 +1238,16 @@ static void bridge_task(void *argument)
             }
             if (fetch_snapshot(&s_work_snapshot)) {
                 if (!s_bridge_online) ESP_LOGI(TAG, "Bridge snapshot received");
-                s_last_snapshot = s_work_snapshot;
-                s_have_snapshot = true;
                 s_bridge_online = true;
                 s_bridge_failures = 0;
-                strlcpy(s_bridge_note, s_work_snapshot.preview_data ? "管理中心在线 · 预览数据" : "管理中心在线", sizeof(s_bridge_note));
                 app_state_publish(&s_work_snapshot);
+                if (app_state_has_real_data(&s_work_snapshot)) {
+                    s_last_snapshot = s_work_snapshot;
+                    s_have_snapshot = true;
+                    strlcpy(s_bridge_note, "管理中心在线", sizeof(s_bridge_note));
+                } else {
+                    strlcpy(s_bridge_note, "管理中心在线 · 等待真实数据", sizeof(s_bridge_note));
+                }
             } else {
                 if (s_bridge_failures < UINT8_MAX) s_bridge_failures++;
                 if (s_have_snapshot && s_bridge_failures < 12) {

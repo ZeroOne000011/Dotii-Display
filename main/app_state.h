@@ -194,7 +194,7 @@ void app_state_publish(const codex_snapshot_t *snapshot);
 void app_state_tasks_publish(const codex_task_detail_t *tasks, size_t count);
 size_t app_state_task_count(void);
 bool app_state_task_copy(size_t index, codex_task_detail_t *task);
-void app_state_make_preview(codex_snapshot_t *snapshot);
+bool app_state_has_real_data(const codex_snapshot_t *snapshot);
 const char *app_state_status_text(codex_task_status_t status);
 codex_task_status_t app_state_status_from_string(const char *status);
 const char *app_state_bambu_status_text(bambu_status_t status);
