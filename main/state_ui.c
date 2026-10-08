@@ -3046,6 +3046,17 @@ static void ui_timer(lv_timer_t *timer)
         }
     }
 
+    /* 确认页退出兜底：退出动作挂在快照应用路径上，快照流一旦中断
+       （蓝牙断连/推送丢失），服务端清除 pending 的快照永远到不了——
+       确认页会无限期停留（倒计时冻结）。请求本地过期即退回表情页，
+       与快照应用路径的行为保持一致。 */
+    if (s_current == s_claudecode_confirm && !claudecode_perm_waiting()) {
+        s_perm_switch_pending = false;
+        if (!s_screen_load_pending) {
+            load_screen(s_dotii, true);
+        }
+    }
+
     char summary[80];
     connectivity_get_summary(summary, sizeof(summary));
     lv_label_set_text(s_settings_wifi, summary);
