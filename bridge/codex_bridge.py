@@ -32,7 +32,15 @@ from urllib.parse import unquote, urlparse
 
 from codex_app_server import probe_app_server, run_collector
 from bambu_client import BambuConfigStore, BambuService
-from bluetooth_bridge import BluetoothBridge
+from zai_client import ZaiConfigStore, ZaiService
+from claudecode_client import (
+    PERMISSION_WAIT_SECONDS,
+    ClaudeCodeMonitor,
+    PermissionBroker,
+    hooks_installed,
+    update_hooks,
+)
+from bluetooth_bridge import BleLinkService, BluetoothBridge
 from firmware_flasher import FirmwareFlasher
 from platforms import current_platform
 from runtime_paths import (
@@ -48,6 +56,8 @@ from runtime_paths import (
 
 SCHEMA_VERSION = 1
 MAX_BODY = 32 * 1024
+# PermissionRequest hook 载荷放宽（Write 等工具的 tool_input 可能很大）
+PERMISSION_BODY_MAX = 256 * 1024
 CUSTOM_FRAME_WIDTH = 466
 CUSTOM_FRAME_HEIGHT = 466
 CUSTOM_FRAME_SIZE = CUSTOM_FRAME_WIDTH * CUSTOM_FRAME_HEIGHT * 2
@@ -78,7 +88,7 @@ CUSTOM_DEFAULTS = {
     "ring_start": "#F2C66D",
     "ring_end": "#5DA9FF",
 }
-MODULE_DEFAULTS = {"codex": False, "bambu": False, "dotii": True}
+MODULE_DEFAULTS = {"codex": False, "bambu": False, "zai": False, "claudecode": False, "dotii": True}
 
 
 def resolve_ffmpeg(runtime_folder: Path) -> str | None:
@@ -104,6 +114,7 @@ DOTII_BUSINESS_EXPRESSION_IDS = (
 )
 DOTII_STATE_GROUPS = (
     {"id": "codex", "label": "Codex 状态"},
+    {"id": "claudecode", "label": "Claude Code 状态"},
     {"id": "bambu", "label": "Bambu 状态"},
 )
 DOTII_FIXED_STATE_DEFINITIONS = (
@@ -118,6 +129,10 @@ DOTII_BUSINESS_STATE_DEFINITIONS = (
     {"id": "codex_working", "label": "工作中", "group": "codex"},
     {"id": "codex_completed", "label": "任务完成", "group": "codex"},
     {"id": "codex_failure", "label": "失败或异常", "group": "codex"},
+    {"id": "claudecode_waiting_user", "label": "等待操作", "group": "claudecode"},
+    {"id": "claudecode_working", "label": "工作中", "group": "claudecode"},
+    {"id": "claudecode_completed", "label": "任务完成", "group": "claudecode"},
+    {"id": "claudecode_failure", "label": "失败或异常", "group": "claudecode"},
     {"id": "bambu_paused", "label": "已暂停", "group": "bambu"},
     {"id": "bambu_printing", "label": "打印中", "group": "bambu"},
     {"id": "bambu_completed", "label": "打印完成", "group": "bambu"},
@@ -139,10 +154,10 @@ DOTII_LEGACY_STATE_EXPANSIONS = {
     "failure": ("codex_failure", "bambu_failure"),
 }
 DOTII_DEFAULT_BUSINESS_ASSIGNMENTS = {
-    "curious": ("codex_waiting_user", "bambu_paused"),
-    "working": ("codex_working", "bambu_printing"),
-    "complete": ("codex_completed", "bambu_completed"),
-    "failure": ("codex_failure", "bambu_failure"),
+    "curious": ("codex_waiting_user", "claudecode_waiting_user", "bambu_paused"),
+    "working": ("codex_working", "claudecode_working", "bambu_printing"),
+    "complete": ("codex_completed", "claudecode_completed", "bambu_completed"),
+    "failure": ("codex_failure", "claudecode_failure", "bambu_failure"),
 }
 DOTII_DEFAULT_BUSINESS_EXPRESSION = {
     state_id: expression_id
@@ -251,17 +266,50 @@ def _is_loopback(address: str) -> bool:
         return False
 
 
+def _is_lan_address(address: str) -> bool:
+    """Private LAN ranges only; skips loopback, link-local and the 198.18.0.0/15
+    benchmark range that proxy tools (fake-ip VPN adapters) put on the default route."""
+    try:
+        octets = [int(part) for part in address.split(".")]
+    except ValueError:
+        return False
+    if len(octets) != 4 or any(octet < 0 or octet > 255 for octet in octets):
+        return False
+    if octets[0] == 127 or (octets[0] == 169 and octets[1] == 254):
+        return False
+    if octets[0] == 198 and 18 <= octets[1] <= 19:
+        return False
+    if octets[0] >= 224:
+        return False
+    return (
+        octets[0] == 10
+        or (octets[0] == 172 and 16 <= octets[1] <= 31)
+        or (octets[0] == 192 and octets[1] == 168)
+    )
+
+
 def local_ipv4() -> str:
     """Return the LAN address used in the device connection hint."""
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         sock.connect(("10.255.255.255", 1))
         address = sock.getsockname()[0]
-        return address if address and not _is_loopback(address) else "127.0.0.1"
+        if address and _is_lan_address(address):
+            return address
     except OSError:
-        return "127.0.0.1"
+        pass
     finally:
         sock.close()
+    # The default route may point at a proxy's fake-ip adapter; fall back to
+    # enumerating the host's own addresses and picking a real LAN one.
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            address = info[4][0]
+            if _is_lan_address(address):
+                return address
+    except (socket.gaierror, OSError):
+        pass
+    return "127.0.0.1"
 
 
 def _unbounded_text(value: Any, field: str) -> str:
@@ -446,6 +494,7 @@ def validate_module_config(payload: Any) -> dict[str, bool]:
 def default_dotii_config() -> dict[str, Any]:
     return {
         "revision": 0,
+        "return_to_dotii": False,
         "animations": {
             expression_id: {
                 "states": list(DOTII_DEFAULT_BUSINESS_ASSIGNMENTS.get(expression_id, ())),
@@ -543,8 +592,12 @@ def validate_dotii_config(payload: Any) -> dict[str, Any]:
             "state_duration_ms": state_duration_ms,
         }
 
+    return_to_dotii = payload.get("return_to_dotii", False)
+    if not isinstance(return_to_dotii, bool):
+        raise ValueError("dotii.return_to_dotii must be a boolean")
     return {
         "revision": _non_negative_int(payload.get("revision", 0), "dotii.revision"),
+        "return_to_dotii": return_to_dotii,
         "animations": validated_animations,
         "available_states": defaults["available_states"],
         "state_groups": defaults["state_groups"],
@@ -564,30 +617,57 @@ def _dotii_assignment_for_state(config: dict[str, Any], state_id: str) -> tuple[
 
 
 def dotii_state(snapshot: dict[str, Any], bambu: dict[str, Any], enabled: bool,
-                config: dict[str, Any] | None = None) -> dict[str, Any]:
+                config: dict[str, Any] | None = None,
+                claudecode: dict[str, Any] | None = None) -> dict[str, Any]:
     """Resolve the device companion expression from public module state only."""
     config = validate_dotii_config(config)
     task = snapshot.get("codex", {}).get("task", {})
-    codex_status = task.get("status", "offline")
+    # A disabled Codex module leaves the seeded preview task in state.json;
+    # ignore it for expressions so live modules (claudecode/bambu) can react.
+    codex_enabled = bool(snapshot.get("modules", {}).get("codex", True))
+    codex_status = task.get("status", "offline") if codex_enabled else "idle"
     bambu_status = bambu.get("status", "offline")
     bambu_connected = bool(bambu.get("configured")) and bool(bambu.get("connected"))
+    claudecode_online = bool(claudecode or {}) and bool(claudecode.get("connected"))
+    claudecode_status = str((claudecode or {}).get("status") or "idle")
+    # 屏上批准队列非空即等待用户——权限请求优先于一般等待事件。
+    claudecode_permission_pending = bool(
+        claudecode_online and ((claudecode or {}).get("permission") or {}).get("pending")
+    )
+    if claudecode_permission_pending:
+        claudecode_status = "waiting_user"
 
     if codex_status == "failed":
         state_id, reason = "codex_failure", "Codex 任务需要处理"
+    elif claudecode_online and claudecode_status == "failed":
+        state_id, reason = "claudecode_failure", "Claude Code 任务需要处理"
     elif bambu_connected and bambu_status == "fault":
         state_id, reason = "bambu_failure", "Bambu 打印机需要处理"
+    elif claudecode_permission_pending:
+        # 权限等待有时限且需要用户在设备上操作，排在一切常态（working/
+        # printing/offline）之前，否则屏上批准形同虚设。
+        state_id, reason = "claudecode_waiting_user", "Claude Code 等待你的批准"
     elif codex_status == "offline":
         state_id, reason = "connecting", "正在等待管理中心数据"
     elif codex_status == "working":
         state_id, reason = "codex_working", "Codex 正在工作"
+    elif claudecode_online and claudecode_status == "working":
+        state_id, reason = "claudecode_working", "Claude Code 正在工作"
     elif bambu_connected and bambu_status in {"preparing", "printing", "cancelling"}:
         state_id, reason = "bambu_printing", "Bambu 正在打印"
     elif codex_status == "completed":
         state_id, reason = "codex_completed", "Codex 任务已经完成"
+    elif claudecode_online and claudecode_status == "completed":
+        state_id, reason = "claudecode_completed", "Claude Code 任务已经完成"
     elif bambu_connected and bambu_status == "completed":
         state_id, reason = "bambu_completed", "Bambu 打印已经完成"
     elif codex_status == "waiting_user":
         state_id, reason = "codex_waiting_user", "Codex 正在等待你的操作"
+    elif claudecode_online and claudecode_status == "waiting_user":
+        state_id, reason = "claudecode_waiting_user", (
+            "Claude Code 等待你的批准" if claudecode_permission_pending
+            else "Claude Code 正在等待你的操作"
+        )
     elif bambu_connected and bambu_status == "paused":
         state_id, reason = "bambu_paused", "Bambu 打印已暂停"
     else:
@@ -626,6 +706,7 @@ def dotii_state(snapshot: dict[str, Any], bambu: dict[str, Any], enabled: bool,
             "long_idle": local_state("long_idle"),
         },
         "config_revision": config["revision"],
+        "return_to_dotii": bool(config.get("return_to_dotii", False)),
         "available_expressions": list(DOTII_EXPRESSION_IDS),
     }
 
@@ -1004,6 +1085,46 @@ class DotiiConfigStore:
         return validated
 
 
+def default_claudecode_config() -> dict[str, Any]:
+    return {"remote_approve_enabled": False}
+
+
+def validate_claudecode_config(payload: Any) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise ValueError("claudecode 配置必须是对象")
+    enabled = payload.get("remote_approve_enabled", False)
+    if not isinstance(enabled, bool):
+        raise ValueError("remote_approve_enabled 必须是布尔值")
+    return {"remote_approve_enabled": enabled}
+
+
+class ClaudeCodeConfigStore:
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.lock = threading.RLock()
+
+    def read(self) -> dict[str, Any]:
+        with self.lock:
+            if not self.path.is_file():
+                return default_claudecode_config()
+            return validate_claudecode_config(json.loads(self.path.read_text(encoding="utf-8")))
+
+    def write(self, config: dict[str, Any]) -> dict[str, Any]:
+        validated = validate_claudecode_config(config)
+        with self.lock:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            handle, temporary_name = tempfile.mkstemp(prefix="claudecode-", suffix=".json", dir=self.path.parent)
+            try:
+                with os.fdopen(handle, "w", encoding="utf-8") as stream:
+                    json.dump(validated, stream, ensure_ascii=False, indent=2)
+                    stream.write("\n")
+                os.replace(temporary_name, self.path)
+            finally:
+                if os.path.exists(temporary_name):
+                    os.unlink(temporary_name)
+        return validated
+
+
 class DisplayConfigStore:
     def __init__(self, path: Path) -> None:
         self.path = path
@@ -1144,7 +1265,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
         address = local_ipv4()
         runtime = self.bridge.runtime.snapshot()
         return {
-            "app": {"name": "Dotii 管理中心", "version": "1.1.1"},
+            "app": {"name": "Dotii 管理中心", "version": "1.3.1"},
             "bridge": {
                 "online": True,
                 "local_url": f"http://127.0.0.1:{self.bridge.server_port}",
@@ -1157,14 +1278,22 @@ class BridgeHandler(BaseHTTPRequestHandler):
             },
             "snapshot": snapshot,
             "codex_check": self.bridge.codex_check.read(),
+            "zai_check": self.bridge.zai_check.read(),
+            "claudecode_hooks_installed": hooks_installed(
+                Path.home() / ".claude" / "settings.json"
+            ),
             "dotii_config": self.bridge.dotii.read(),
             "display_config": self.bridge.display.read(),
             "bambu_config": self.bridge.bambu_config.public(),
+            "zai_config": self.bridge.zai_config.public(),
             "bluetooth": self.bridge.bluetooth.snapshot(),
+            "ble_link": self.bridge.ble_link.snapshot(),
             "firmware": self.bridge.firmware.snapshot(),
             "modules": [
                 {"id": "codex", "name": "Codex", "enabled": snapshot["modules"]["codex"], "available": True, "locked": False},
                 {"id": "bambu", "name": "Bambu", "enabled": snapshot["modules"]["bambu"], "available": True, "locked": False},
+                {"id": "zai", "name": "Z.ai", "enabled": snapshot["modules"]["zai"], "available": True, "locked": False},
+                {"id": "claudecode", "name": "Claude Code", "enabled": snapshot["modules"]["claudecode"], "available": True, "locked": False},
                 {"id": "custom", "name": "自定义", "enabled": snapshot["custom"]["enabled"], "available": True, "locked": False},
                 {"id": "dotii", "name": "Dotii", "enabled": snapshot["modules"]["dotii"], "available": True, "locked": False},
             ],
@@ -1278,6 +1407,8 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 return
             try:
                 payload = self._read_admin_action()
+                # 配网期间让出蓝牙连接（设备只接受一个中心连接）。
+                self.bridge.ble_link.pause()
                 address = local_ipv4()
                 bridge_url = f"http://{address}:{self.bridge.server_port}/api/v1/snapshot"
                 started = self.bridge.bluetooth.start_configure(
@@ -1285,6 +1416,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
                     password=payload.get("password"), bridge_url=bridge_url,
                     bridge_token=self.bridge.token,
                     current_token=payload.get("current_token", ""),
+                    mode=payload.get("mode", "wifi"),
                 )
                 status = HTTPStatus.ACCEPTED if started else HTTPStatus.CONFLICT
                 self._send_json(status, {"ok": started})
@@ -1323,6 +1455,144 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 config = self.bridge.bambu_config.write(self._read_admin_action(), preserve_secret=True)
                 self.bridge.bambu.reconfigure()
                 self._send_json(HTTPStatus.OK, {"ok": True, "bambu_config": config})
+            except (OSError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as error:
+                self._send_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+            return
+        if path == "/api/v1/admin/zai/config":
+            if self._deny_nonlocal():
+                return
+            try:
+                config = self.bridge.zai_config.write(self._read_admin_action(), preserve_secret=True)
+                self.bridge.zai.reconfigure()
+                self._send_json(HTTPStatus.OK, {"ok": True, "zai_config": config})
+            except (OSError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as error:
+                self._send_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+            return
+        if path == "/api/v1/admin/zai/check":
+            if self._deny_nonlocal():
+                return
+            try:
+                self._read_admin_action()
+                if not self.bridge.modules.read()["zai"]:
+                    raise ValueError("请先启用 Z.ai 功能再运行检测")
+                result = self.bridge.zai.probe()
+                self.bridge.zai_check.write(result)
+                self._send_json(HTTPStatus.OK, result)
+            except (OSError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as error:
+                self._send_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+            return
+        if path == "/api/v1/admin/ble-link":
+            if self._deny_nonlocal():
+                return
+            try:
+                payload = self._read_admin_action()
+                action = payload.get("action")
+                if action not in {"pause", "resume"}:
+                    raise ValueError("action 必须是 pause 或 resume")
+                if action == "pause":
+                    self.bridge.ble_link.pause(seconds=None)
+                else:
+                    self.bridge.ble_link.resume()
+                self._send_json(HTTPStatus.OK, {"ok": True, "ble_link": self.bridge.ble_link.snapshot()})
+            except (OSError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as error:
+                self._send_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+            return
+        if path == "/api/v1/admin/claudecode/event":
+            if self._deny_nonlocal():
+                return
+            try:
+                # 大小上限由 _read_json 的 MAX_BODY 兜底。
+                payload = self._read_admin_action()
+                self.bridge.claudecode.record_event(payload)
+                # 用户已在电脑端批准（提示与 hook hold 并行显示）：PostToolUse
+                # 说明该工具已放行执行，撤销屏上同会话同工具的权限等待。
+                if str(payload.get("hook_event_name") or "") == "PostToolUse":
+                    self.bridge.claudecode_permission.abandon_for_session_tool(
+                        str(payload.get("session_id") or ""),
+                        str(payload.get("tool_name") or ""),
+                    )
+                self._send_json(HTTPStatus.OK, {"ok": True})
+            except (OSError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as error:
+                self._send_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+            return
+        if path == "/api/v1/admin/claudecode/hooks":
+            if self._deny_nonlocal():
+                return
+            try:
+                payload = self._read_admin_action()
+                action = payload.get("action", "install")
+                if action not in {"install", "remove"}:
+                    raise ValueError("action 必须是 install 或 remove")
+                result = update_hooks(
+                    Path.home() / ".claude" / "settings.json",
+                    self.bridge.server_port,
+                    action,
+                )
+                result["claudecode"] = self.bridge.claudecode.snapshot(
+                    self.bridge.modules.read()["claudecode"]
+                )
+                self._send_json(HTTPStatus.OK, result)
+            except (OSError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as error:
+                self._send_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+            return
+        if path == "/api/v1/admin/claudecode/permission":
+            # PermissionRequest hook 的决策端点：hold 响应等待 Dotii/管理页
+            # 决策。Write 等工具的 tool_input 会超过常规 MAX_BODY，单独放宽。
+            if self._deny_nonlocal():
+                return
+            try:
+                content_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+                if content_type != "application/json":
+                    raise ValueError("permission hook requires application/json")
+                raw = self._read_bytes(PERMISSION_BODY_MAX)
+                payload = json.loads(raw.decode("utf-8"))
+            except (OSError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as error:
+                self._send_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            decision = self.bridge.claudecode_permission.submit_and_wait(payload)
+            if decision is None:
+                # 模式关闭或超时：空体让 Claude Code 照常弹本机权限提示。
+                self._send_bytes(HTTPStatus.OK, b"", "application/json")
+                return
+            hook_decision: dict[str, Any] = {"behavior": decision["behavior"]}
+            if decision["behavior"] == "deny":
+                hook_decision["message"] = "已在 Dotii 上拒绝"
+            self._send_json(HTTPStatus.OK, {
+                "hookSpecificOutput": {
+                    "hookEventName": "PermissionRequest",
+                    "decision": hook_decision,
+                }
+            })
+            return
+        if path in {"/api/v1/admin/claudecode/decision", "/api/v1/claudecode/decision"}:
+            if path.startswith("/api/v1/admin/"):
+                if self._deny_nonlocal():
+                    return
+            elif not self._authorized():
+                self._send_json(HTTPStatus.UNAUTHORIZED, {"error": "invalid bridge token"})
+                return
+            try:
+                payload = self._read_admin_action()
+                request_id = payload.get("id")
+                allow = payload.get("allow")
+                if not isinstance(request_id, str) or not request_id or not isinstance(allow, bool):
+                    raise ValueError("需要字符串 id 与布尔 allow")
+                resolved = self.bridge.claudecode_permission.resolve(request_id, allow)
+                self._send_json(HTTPStatus.OK, {"ok": True, "resolved": resolved})
+            except (OSError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as error:
+                self._send_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+            return
+        if path == "/api/v1/admin/claudecode/remote":
+            if self._deny_nonlocal():
+                return
+            try:
+                payload = self._read_admin_action()
+                enabled = payload.get("enabled")
+                if not isinstance(enabled, bool):
+                    raise ValueError("enabled 必须是布尔值")
+                self.bridge.claudecode_config.write({"remote_approve_enabled": enabled})
+                self.bridge.claudecode_permission.set_mode(enabled)
+                self._send_json(HTTPStatus.OK, {"ok": True, "remote_approve_enabled": enabled})
             except (OSError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as error:
                 self._send_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
             return
@@ -1405,7 +1675,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 module_id = payload.get("id")
                 enabled = payload.get("enabled")
                 if module_id not in MODULE_DEFAULTS or not isinstance(enabled, bool):
-                    raise ValueError("id must be codex, bambu or dotii and enabled must be boolean")
+                    raise ValueError("id must be codex, bambu, zai, claudecode or dotii and enabled must be boolean")
                 modules = self.bridge.modules.read()
                 candidate = {**modules, module_id: enabled}
                 if not any(candidate.values()) and not self.bridge.custom.read()["enabled"]:
@@ -1418,6 +1688,10 @@ class BridgeHandler(BaseHTTPRequestHandler):
                         self.bridge.runtime.report("disabled", "Codex 模块已关闭")
                 elif module_id == "bambu":
                     self.bridge.bambu.set_enabled(enabled)
+                elif module_id == "zai":
+                    self.bridge.zai.set_enabled(enabled)
+                elif module_id == "claudecode":
+                    self.bridge.claudecode.set_enabled(enabled)
                 self._send_json(HTTPStatus.OK, {"ok": True, "modules": saved})
             except (OSError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as error:
                 self._send_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
@@ -1428,7 +1702,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
             try:
                 payload = self._read_admin_action()
                 current = self.bridge.dotii.read()
-                candidate = {**payload, "revision": current["revision"] + 1}
+                candidate = {**current, **payload, "revision": current["revision"] + 1}
                 config = self.bridge.dotii.write(candidate)
                 self._send_json(HTTPStatus.OK, {"ok": True, "dotii_config": config})
             except (OSError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as error:
@@ -1494,7 +1768,14 @@ class BridgeServer(ThreadingHTTPServer):
         assets: CustomAssetStore,
         bambu_config: BambuConfigStore,
         bambu: BambuService,
+        zai_config: ZaiConfigStore,
+        zai: ZaiService,
+        zai_check: CodexCheckStore,
+        claudecode: ClaudeCodeMonitor,
+        claudecode_permission: PermissionBroker,
+        claudecode_config: ClaudeCodeConfigStore,
         bluetooth: BluetoothBridge,
+        ble_link: BleLinkService,
         firmware: FirmwareFlasher,
         runtime_folder: Path,
         application_folder: Path,
@@ -1514,7 +1795,14 @@ class BridgeServer(ThreadingHTTPServer):
         self.assets = assets
         self.bambu_config = bambu_config
         self.bambu = bambu
+        self.zai_config = zai_config
+        self.zai = zai
+        self.zai_check = zai_check
+        self.claudecode = claudecode
+        self.claudecode_permission = claudecode_permission
+        self.claudecode_config = claudecode_config
         self.bluetooth = bluetooth
+        self.ble_link = ble_link
         self.firmware = firmware
         self.runtime_folder = runtime_folder
         self.application_folder = application_folder
@@ -1523,15 +1811,21 @@ class BridgeServer(ThreadingHTTPServer):
 
     def snapshot(self) -> dict[str, Any]:
         snapshot = self.store.read()
+        # 每次响应即快照的生成时刻：BLE 模式设备用它校准时钟，也是 stale 判定基准。
+        snapshot["generated_at_epoch"] = int(time.time())
         custom = self.custom.read()
         custom.update(self.assets.source_info())
         custom.update(self.assets.render_info())
         snapshot["custom"] = custom
         snapshot["bambu"] = self.bambu.snapshot()
+        snapshot["zai"] = self.zai.snapshot()
+        snapshot["claudecode"] = self.claudecode.snapshot(self.modules.read()["claudecode"])
+        snapshot["claudecode"]["permission"] = self.claudecode_permission.snapshot()
         modules = self.modules.read()
         snapshot["modules"] = {**modules, "custom": custom["enabled"]}
         snapshot["dotii"] = dotii_state(
-            snapshot, snapshot["bambu"], modules["dotii"], self.dotii.read()
+            snapshot, snapshot["bambu"], modules["dotii"], self.dotii.read(),
+            claudecode=snapshot["claudecode"],
         )
         snapshot["display"] = self.display.read()
         return snapshot
@@ -1572,6 +1866,7 @@ def main() -> None:
     dotii = DotiiConfigStore(writable_root / "dotii.json")
     display = DisplayConfigStore(writable_root / "display.json")
     codex_check = CodexCheckStore(writable_root / "codex-check.json")
+    zai_check = CodexCheckStore(writable_root / "zai-check.json")
     assets = CustomAssetStore(writable_root)
     bambu_config = BambuConfigStore(writable_root / "bambu.json")
     bambu = BambuService(
@@ -1580,13 +1875,42 @@ def main() -> None:
         lambda: resolve_ffmpeg(writable_root),
     )
     bambu.start()
+    zai_config = ZaiConfigStore(writable_root / "zai.json")
+    zai = ZaiService(
+        zai_config,
+        lambda: modules.read()["zai"],
+    )
+    zai.start()
+    claudecode = ClaudeCodeMonitor()
+    claudecode_permission = PermissionBroker(
+        module_enabled=lambda: modules.read()["claudecode"])
+    claudecode_config = ClaudeCodeConfigStore(writable_root / "claudecode.json")
+    claudecode_permission.set_mode(claudecode_config.read()["remote_approve_enabled"])
     bluetooth = BluetoothBridge(writable_root)
     bluetooth.start()
+    server_ref: dict[str, Any] = {}
+
+    def _snapshot_json() -> str:
+        instance = server_ref.get("server")
+        if instance is None:
+            return "{}"
+        return json.dumps(instance.snapshot(), ensure_ascii=False, separators=(",", ":"))
+
+    ble_link = BleLinkService(bluetooth, writable_root, _snapshot_json,
+                              on_decision=claudecode_permission.resolve)
+    # BLE 推送长连接活跃时，状态探测 monitor 跳过（设备只接受一个中心连接）。
+    bluetooth.link_active_probe = lambda: bool(ble_link.snapshot().get("connected"))
+    bluetooth.on_configured = lambda address, mode: ble_link.set_binding(
+        enabled=mode == "ble", address=address)
+    ble_link.start()
     firmware = FirmwareFlasher(project_root(), writable_root)
     server = BridgeServer((arguments.host, arguments.port), store, token, runtime, collector_restart,
                           custom, modules, dotii, display, codex_check, assets, bambu_config, bambu,
-                          bluetooth, firmware, writable_root, application_root(), arguments.codex_command,
-                          arguments.parent_pid)
+                          zai_config, zai, zai_check, claudecode, claudecode_permission,
+                          claudecode_config,
+                          bluetooth, ble_link, firmware, writable_root, application_root(),
+                          arguments.codex_command, arguments.parent_pid)
+    server_ref["server"] = server
     if arguments.parent_pid > 1:
         threading.Thread(
             target=watch_parent,

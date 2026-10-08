@@ -6,6 +6,7 @@
 #include <time.h>
 
 #include "app_state.h"
+#include "ble_bridge.h"
 #include "cJSON.h"
 #include "device_config.h"
 #include "esp_crt_bundle.h"
@@ -18,6 +19,7 @@
 #include "esp_netif_sntp.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "freertos/event_groups.h"
 #include "freertos/task.h"
 #include "sdkconfig.h"
@@ -39,6 +41,8 @@ static bool s_bridge_online;
 static uint8_t s_bridge_failures;
 static char s_ip[24] = "--";
 static char s_bridge_note[48] = "正在启动";
+/* 快照解析互斥：Wi-Fi 拉取与 BLE 推送两个来源共用解析与发布路径。 */
+static SemaphoreHandle_t s_parse_lock;
 /* Snapshot payloads are large and do not participate in DMA. Keep them in
    PSRAM so the Wi-Fi driver retains enough internal RAM for its RX buffers. */
 EXT_RAM_BSS_ATTR static codex_snapshot_t s_last_snapshot;
@@ -51,6 +55,7 @@ static uint8_t *s_bambu_camera_buffers[2];
 static uint32_t s_bambu_camera_revisions[2];
 static int s_bambu_camera_active = -1;
 static QueueHandle_t s_bambu_command_queue;
+static QueueHandle_t s_decision_queue;
 static codex_task_detail_t *s_work_tasks;
 static size_t s_work_task_count;
 
@@ -59,6 +64,12 @@ typedef enum {
     BAMBU_COMMAND_RESUME,
     BAMBU_COMMAND_STOP,
 } bambu_command_t;
+
+/* Dotii 屏上批准/拒绝 Claude Code 权限请求（管理中心下发 id，回传决策）。 */
+typedef struct {
+    char id[CLAUDECODE_PERM_ID_MAX];
+    bool allow;
+} claudecode_decision_t;
 
 typedef struct {
     char *body;
@@ -96,14 +107,6 @@ typedef struct {
     bool overflow;
 } image_body_t;
 
-static void copy_json_string(cJSON *parent, const char *name, char *destination, size_t destination_size)
-{
-    cJSON *item = cJSON_GetObjectItemCaseSensitive(parent, name);
-    if (cJSON_IsString(item) && item->valuestring != NULL) {
-        strlcpy(destination, item->valuestring, destination_size);
-    }
-}
-
 static size_t utf8_char_length(const char *text, size_t available)
 {
     unsigned char lead = (unsigned char)text[0];
@@ -116,6 +119,25 @@ static size_t utf8_char_length(const char *text, size_t available)
         if (((unsigned char)text[index] & 0xC0) != 0x80) return 1;
     }
     return length;
+}
+
+static void copy_json_string(cJSON *parent, const char *name, char *destination, size_t destination_size)
+{
+    cJSON *item = cJSON_GetObjectItemCaseSensitive(parent, name);
+    if (cJSON_IsString(item) && item->valuestring != NULL) {
+        /* 按完整 UTF-8 字符拷贝：strlcpy 的字节级截断会把中文撕裂成
+           非法序列（LVGL 渲染乱码），权限摘要/项目名尤其常见。 */
+        size_t out = 0;
+        const char *text = item->valuestring;
+        while (*text != '\0' && out + 1 < destination_size) {
+            size_t length = utf8_char_length(text, strlen(text));
+            if (length == 0 || out + length >= destination_size) break;
+            memcpy(destination + out, text, length);
+            out += length;
+            text += length;
+        }
+        destination[out] = '\0';
+    }
 }
 
 static bool plain_append(char *destination, size_t destination_size, size_t *out,
@@ -449,15 +471,23 @@ static void copy_module_config(cJSON *root, codex_snapshot_t *snapshot)
     snapshot->codex_enabled = true;
     snapshot->bambu_enabled = true;
     snapshot->dotii_enabled = true;
+    /* Older management centers never publish modules.zai; keep the page
+       hidden until the field explicitly enables it. */
+    snapshot->zai_enabled = false;
+    snapshot->claudecode_enabled = false;
     cJSON *modules = cJSON_GetObjectItemCaseSensitive(root, "modules");
     if (!cJSON_IsObject(modules)) return;
 
     cJSON *codex = cJSON_GetObjectItemCaseSensitive(modules, "codex");
     cJSON *bambu = cJSON_GetObjectItemCaseSensitive(modules, "bambu");
     cJSON *dotii = cJSON_GetObjectItemCaseSensitive(modules, "dotii");
+    cJSON *zai = cJSON_GetObjectItemCaseSensitive(modules, "zai");
+    cJSON *claudecode = cJSON_GetObjectItemCaseSensitive(modules, "claudecode");
     if (cJSON_IsBool(codex)) snapshot->codex_enabled = cJSON_IsTrue(codex);
     if (cJSON_IsBool(bambu)) snapshot->bambu_enabled = cJSON_IsTrue(bambu);
     if (cJSON_IsBool(dotii)) snapshot->dotii_enabled = cJSON_IsTrue(dotii);
+    if (cJSON_IsBool(zai)) snapshot->zai_enabled = cJSON_IsTrue(zai);
+    if (cJSON_IsBool(claudecode)) snapshot->claudecode_enabled = cJSON_IsTrue(claudecode);
 }
 
 static uint32_t dotii_state_token_from_string(const char *value)
@@ -503,6 +533,8 @@ static void copy_dotii_state(cJSON *root, codex_snapshot_t *snapshot)
     }
     cJSON *assigned = cJSON_GetObjectItemCaseSensitive(dotii, "state_assigned");
     if (cJSON_IsBool(assigned)) snapshot->dotii_state_assigned = cJSON_IsTrue(assigned);
+    snapshot->dotii_return_enabled = cJSON_IsTrue(
+        cJSON_GetObjectItemCaseSensitive(dotii, "return_to_dotii"));
     if (!snapshot->dotii_state_assigned) {
         snapshot->dotii_expression = DOTII_EXPRESSION_IDLE_BREATH;
         snapshot->dotii_base_idle = true;
@@ -639,6 +671,117 @@ static void copy_bambu_status(cJSON *root, codex_snapshot_t *snapshot)
     }
 }
 
+static void copy_zai_status(cJSON *root, codex_snapshot_t *snapshot)
+{
+    snapshot->zai_configured = false;
+    snapshot->zai_connected = false;
+    snapshot->zai_five_hour_available = false;
+    snapshot->zai_weekly_available = false;
+    snapshot->zai_five_hour_remaining_percent = 0;
+    snapshot->zai_weekly_remaining_percent = 0;
+    snapshot->zai_plan_level[0] = '\0';
+    snapshot->zai_five_hour_reset_date[0] = '\0';
+    snapshot->zai_weekly_reset_date[0] = '\0';
+    cJSON *zai = cJSON_GetObjectItemCaseSensitive(root, "zai");
+    if (!cJSON_IsObject(zai)) return;
+
+    snapshot->zai_configured = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(zai, "configured"));
+    snapshot->zai_connected = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(zai, "connected"));
+    snapshot->zai_five_hour_available = cJSON_IsTrue(
+        cJSON_GetObjectItemCaseSensitive(zai, "five_hour_available"));
+    snapshot->zai_weekly_available = cJSON_IsTrue(
+        cJSON_GetObjectItemCaseSensitive(zai, "weekly_available"));
+    copy_json_string(zai, "plan_level", snapshot->zai_plan_level, sizeof(snapshot->zai_plan_level));
+    copy_json_string(zai, "five_hour_reset_date", snapshot->zai_five_hour_reset_date,
+                     sizeof(snapshot->zai_five_hour_reset_date));
+    copy_json_string(zai, "weekly_reset_date", snapshot->zai_weekly_reset_date,
+                     sizeof(snapshot->zai_weekly_reset_date));
+    cJSON *remaining = cJSON_GetObjectItemCaseSensitive(zai, "five_hour_remaining_percent");
+    cJSON *weekly = cJSON_GetObjectItemCaseSensitive(zai, "weekly_remaining_percent");
+    if (cJSON_IsNumber(remaining)) {
+        int value = remaining->valueint;
+        if (value < 0) value = 0;
+        if (value > 100) value = 100;
+        snapshot->zai_five_hour_remaining_percent = value;
+    }
+    if (cJSON_IsNumber(weekly)) {
+        int value = weekly->valueint;
+        if (value < 0) value = 0;
+        if (value > 100) value = 100;
+        snapshot->zai_weekly_remaining_percent = value;
+    }
+}
+
+static void copy_claudecode_status(cJSON *root, codex_snapshot_t *snapshot)
+{
+    snapshot->claudecode_connected = false;
+    snapshot->claudecode_status = CODEX_STATUS_OFFLINE;
+    snapshot->claudecode_session_count = 0;
+    snapshot->claudecode_updated_at = 0;
+    snapshot->claudecode_perm_enabled = false;
+    snapshot->claudecode_perm_pending = false;
+    snapshot->claudecode_perm_id[0] = '\0';
+    snapshot->claudecode_perm_tool[0] = '\0';
+    snapshot->claudecode_perm_preview[0] = '\0';
+    snapshot->claudecode_perm_project[0] = '\0';
+    snapshot->claudecode_perm_expires = 0;
+    memset(snapshot->claudecode_sessions, 0, sizeof(snapshot->claudecode_sessions));
+    cJSON *claudecode = cJSON_GetObjectItemCaseSensitive(root, "claudecode");
+    if (!cJSON_IsObject(claudecode)) return;
+
+    snapshot->claudecode_connected = cJSON_IsTrue(
+        cJSON_GetObjectItemCaseSensitive(claudecode, "connected"));
+    cJSON *status = cJSON_GetObjectItemCaseSensitive(claudecode, "status");
+    snapshot->claudecode_status = app_state_status_from_string(
+        cJSON_IsString(status) ? status->valuestring : "idle");
+    cJSON *sessions = cJSON_GetObjectItemCaseSensitive(claudecode, "session_count");
+    if (cJSON_IsNumber(sessions)) {
+        int value = sessions->valueint;
+        if (value < 0) value = 0;
+        if (value > 99) value = 99;
+        snapshot->claudecode_session_count = (uint8_t)value;
+    }
+    cJSON *updated = cJSON_GetObjectItemCaseSensitive(claudecode, "updated_at_epoch");
+    snapshot->claudecode_updated_at = cJSON_IsNumber(updated) ? (time_t)updated->valuedouble : 0;
+
+    cJSON *session_list = cJSON_GetObjectItemCaseSensitive(claudecode, "sessions");
+    if (cJSON_IsArray(session_list)) {
+        uint8_t index = 0;
+        cJSON *item = NULL;
+        cJSON_ArrayForEach(item, session_list) {
+            if (!cJSON_IsObject(item) || index >= CLAUDECODE_SESSION_MAX) break;
+            claudecode_session_t *session = &snapshot->claudecode_sessions[index];
+            cJSON *item_status = cJSON_GetObjectItemCaseSensitive(item, "status");
+            session->status = app_state_status_from_string(
+                cJSON_IsString(item_status) ? item_status->valuestring : "idle");
+            copy_json_string(item, "project", session->project, sizeof(session->project));
+            cJSON *item_updated = cJSON_GetObjectItemCaseSensitive(item, "updated_at_epoch");
+            session->updated_at = cJSON_IsNumber(item_updated) ? (time_t)item_updated->valuedouble : 0;
+            index++;
+        }
+    }
+
+    /* 屏上批准队列：pending 只取队首（FIFO，处理完由管理中心自动前进）。 */
+    cJSON *permission = cJSON_GetObjectItemCaseSensitive(claudecode, "permission");
+    if (!cJSON_IsObject(permission)) return;
+    snapshot->claudecode_perm_enabled = cJSON_IsTrue(
+        cJSON_GetObjectItemCaseSensitive(permission, "enabled"));
+    cJSON *pending = cJSON_GetObjectItemCaseSensitive(permission, "pending");
+    if (!cJSON_IsObject(pending)) return;
+    copy_json_string(pending, "id", snapshot->claudecode_perm_id, CLAUDECODE_PERM_ID_MAX);
+    copy_json_string(pending, "tool", snapshot->claudecode_perm_tool, CLAUDECODE_PERM_TOOL_MAX);
+    copy_json_string(pending, "preview", snapshot->claudecode_perm_preview,
+                     CLAUDECODE_PERM_PREVIEW_MAX);
+    copy_json_string(pending, "project", snapshot->claudecode_perm_project,
+                     CLAUDECODE_PERM_PROJECT_MAX);
+    cJSON *expires = cJSON_GetObjectItemCaseSensitive(pending, "expires_epoch");
+    snapshot->claudecode_perm_expires = cJSON_IsNumber(expires) ? (time_t)expires->valuedouble : 0;
+    cJSON *queued = cJSON_GetObjectItemCaseSensitive(pending, "queued");
+    snapshot->claudecode_perm_queued = cJSON_IsNumber(queued) ? (uint8_t)queued->valueint : 0;
+    snapshot->claudecode_perm_pending = snapshot->claudecode_perm_id[0] != '\0' &&
+                                        snapshot->claudecode_perm_expires > 0;
+}
+
 static bool parse_snapshot(const char *json, codex_snapshot_t *snapshot)
 {
     bool ok = false;
@@ -739,6 +882,8 @@ static bool parse_snapshot(const char *json, codex_snapshot_t *snapshot)
     }
     copy_custom_config(root, snapshot);
     copy_bambu_status(root, snapshot);
+    copy_zai_status(root, snapshot);
+    copy_claudecode_status(root, snapshot);
     copy_dotii_state(root, snapshot);
     ok = true;
 
@@ -928,14 +1073,22 @@ static bool fetch_snapshot(codex_snapshot_t *snapshot)
         heap_caps_free(response.body);
         return false;
     }
+    /* 解析与任务缓存（s_work_snapshot/s_work_tasks，含堆指针）与 BLE 推送
+       路径共用，必须持 s_parse_lock——双链路并发解析会 double-free/堆损坏。 */
+    if (!xSemaphoreTake(s_parse_lock, pdMS_TO_TICKS(500))) {
+        heap_caps_free(response.body);
+        return false;
+    }
     bool parsed = parse_snapshot(response.body, snapshot);
     heap_caps_free(response.body);
-    if (parsed) app_state_tasks_publish(s_work_tasks, s_work_task_count);
-    if (parsed && snapshot->custom_image_available &&
+    /* 种子的 preview-thread 任务与示例图不上屏。 */
+    if (parsed && !snapshot->preview_data) app_state_tasks_publish(s_work_tasks, s_work_task_count);
+    xSemaphoreGive(s_parse_lock);
+    if (parsed && !snapshot->preview_data && snapshot->custom_image_available &&
         !fetch_custom_image(snapshot->custom_image_revision)) {
         snapshot->custom_image_available = false;
     }
-    if (parsed && snapshot->bambu_camera_available &&
+    if (parsed && !snapshot->preview_data && snapshot->bambu_camera_available &&
         !fetch_bambu_camera(snapshot->bambu_camera_revision)) {
         snapshot->bambu_camera_available = false;
     }
@@ -995,6 +1148,39 @@ static bool send_bambu_command(bambu_command_t command)
     return error == ESP_OK && status == 202;
 }
 
+static bool send_claudecode_decision(const claudecode_decision_t *decision)
+{
+    const device_config_values_t *device_config = device_config_get();
+    char url[256];
+    strlcpy(url, device_config->bridge_url, sizeof(url));
+    char *last_slash = strrchr(url, '/');
+    if (last_slash == NULL) return false;
+    strlcpy(last_slash + 1, "claudecode/decision", sizeof(url) - (size_t)(last_slash + 1 - url));
+    char payload[64];
+    snprintf(payload, sizeof(payload), "{\"id\":\"%s\",\"allow\":%s}",
+             decision->id, decision->allow ? "true" : "false");
+    char response_body[256] = {0};
+    http_body_t response = {.body = response_body, .capacity = sizeof(response_body)};
+    esp_http_client_config_t config = {
+        .url = url, .event_handler = http_event_handler, .user_data = &response,
+        .timeout_ms = 8000, .buffer_size = 512, .crt_bundle_attach = esp_crt_bundle_attach,
+    };
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+    if (client == NULL) return false;
+    esp_http_client_set_method(client, HTTP_METHOD_POST);
+    esp_http_client_set_header(client, "Content-Type", "application/json");
+    if (strlen(device_config->bridge_token) > 0) {
+        esp_http_client_set_header(client, "X-Bridge-Token", device_config->bridge_token);
+    }
+    esp_http_client_set_post_field(client, payload, strlen(payload));
+    esp_err_t error = esp_http_client_perform(client);
+    int status = esp_http_client_get_status_code(client);
+    esp_http_client_cleanup(client);
+    ESP_LOGI(TAG, "Claude Code decision %s: %s, HTTP %d",
+             decision->allow ? "allow" : "deny", esp_err_to_name(error), status);
+    return error == ESP_OK && status == 200;
+}
+
 static void publish_offline_state(void)
 {
     if (s_have_snapshot) {
@@ -1004,13 +1190,49 @@ static void publish_offline_state(void)
         s_work_snapshot.stale = s_work_snapshot.generated_at > 0 && now > s_work_snapshot.generated_at &&
                                 (now - s_work_snapshot.generated_at) > CONFIG_STATE_DISPLAY_STALE_SECONDS;
         if (s_work_snapshot.stale) s_work_snapshot.status = CODEX_STATUS_OFFLINE;
-    } else if (CONFIG_STATE_DISPLAY_DEMO_MODE) {
-        app_state_make_preview(&s_work_snapshot);
     } else {
+        /* 无任何真实数据：全零快照（valid=false），屏显等待屏而不是假数值。 */
         memset(&s_work_snapshot, 0, sizeof(s_work_snapshot));
         s_work_snapshot.status = CODEX_STATUS_OFFLINE;
     }
     app_state_publish(&s_work_snapshot);
+}
+
+/* 用快照携带的服务器时间校准时钟（蓝牙模式无 SNTP，这是唯一时间源）。 */
+static void calibrate_clock_from_snapshot(time_t generated_at)
+{
+    if (generated_at <= 0) return;
+    time_t now = time(NULL);
+    if (now >= generated_at && now - generated_at < 30) return; /* 已同步 */
+    if (now > generated_at + 86400) return; /* 本地时间明显超前，不动 */
+    struct timeval tv = {.tv_sec = generated_at, .tv_usec = 0};
+    settimeofday(&tv, NULL);
+}
+
+/* BLE 快照通道入口：校验并发布推送的快照（与 Wi-Fi 拉取共用 parse_snapshot）。 */
+bool connectivity_ingest_snapshot(const char *json, uint32_t length)
+{
+    if (json == NULL || length == 0) return false;
+    if (!xSemaphoreTake(s_parse_lock, pdMS_TO_TICKS(500))) return false;
+    bool ok = false;
+    if (parse_snapshot(json, &s_work_snapshot)) {
+        calibrate_clock_from_snapshot(s_work_snapshot.generated_at);
+        /* 种子的 preview-thread 任务不上屏。 */
+        if (!s_work_snapshot.preview_data) app_state_tasks_publish(s_work_tasks, s_work_task_count);
+        /* 种子快照照常上屏（页面结构与实时模块数据需要）；真实数据记账
+           只记非种子快照，断连回落才不会显示种子数值。 */
+        app_state_publish(&s_work_snapshot);
+        if (app_state_has_real_data(&s_work_snapshot)) {
+            s_last_snapshot = s_work_snapshot;
+            s_have_snapshot = true;
+            strlcpy(s_bridge_note, "蓝牙已连接", sizeof(s_bridge_note));
+        } else {
+            strlcpy(s_bridge_note, "蓝牙已连接 · 等待真实数据", sizeof(s_bridge_note));
+        }
+        ok = true;
+    }
+    xSemaphoreGive(s_parse_lock);
+    return ok;
 }
 
 static void bridge_task(void *argument)
@@ -1030,14 +1252,22 @@ static void bridge_task(void *argument)
             while (s_bambu_command_queue != NULL && xQueueReceive(s_bambu_command_queue, &command, 0) == pdTRUE) {
                 send_bambu_command(command);
             }
+            claudecode_decision_t decision;
+            while (s_decision_queue != NULL && xQueueReceive(s_decision_queue, &decision, 0) == pdTRUE) {
+                send_claudecode_decision(&decision);
+            }
             if (fetch_snapshot(&s_work_snapshot)) {
                 if (!s_bridge_online) ESP_LOGI(TAG, "Bridge snapshot received");
-                s_last_snapshot = s_work_snapshot;
-                s_have_snapshot = true;
                 s_bridge_online = true;
                 s_bridge_failures = 0;
-                strlcpy(s_bridge_note, s_work_snapshot.preview_data ? "管理中心在线 · 预览数据" : "管理中心在线", sizeof(s_bridge_note));
                 app_state_publish(&s_work_snapshot);
+                if (app_state_has_real_data(&s_work_snapshot)) {
+                    s_last_snapshot = s_work_snapshot;
+                    s_have_snapshot = true;
+                    strlcpy(s_bridge_note, "管理中心在线", sizeof(s_bridge_note));
+                } else {
+                    strlcpy(s_bridge_note, "管理中心在线 · 等待真实数据", sizeof(s_bridge_note));
+                }
             } else {
                 if (s_bridge_failures < UINT8_MAX) s_bridge_failures++;
                 if (s_have_snapshot && s_bridge_failures < 12) {
@@ -1105,10 +1335,18 @@ void connectivity_start(void)
     const device_config_values_t *device_config = device_config_get();
     ESP_LOGI(TAG, "Preparing bridge data channel");
     s_events = xEventGroupCreate();
+    s_parse_lock = xSemaphoreCreateMutex();
+    if (s_parse_lock == NULL) {
+        strlcpy(s_bridge_note, "内部资源不足", sizeof(s_bridge_note));
+        ESP_LOGE(TAG, "Unable to create snapshot parse lock");
+        return;
+    }
     s_bambu_command_queue = xQueueCreate(4, sizeof(bambu_command_t));
+    s_decision_queue = xQueueCreate(4, sizeof(claudecode_decision_t));
     s_work_tasks = heap_caps_calloc(CODEX_TASK_DETAIL_MAX, sizeof(*s_work_tasks),
                                     MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    ESP_ERROR_CHECK((s_events == NULL || s_bambu_command_queue == NULL || s_work_tasks == NULL) ?
+    ESP_ERROR_CHECK((s_events == NULL || s_bambu_command_queue == NULL || s_decision_queue == NULL ||
+                     s_work_tasks == NULL) ?
                     ESP_ERR_NO_MEM : ESP_OK);
     ESP_LOGI(TAG, "Bridge data buffers ready");
     setenv("TZ", CONFIG_STATE_DISPLAY_TIMEZONE, 1);
@@ -1122,6 +1360,15 @@ void connectivity_start(void)
     if (task_created != pdPASS) {
         strlcpy(s_bridge_note, "管理中心任务启动失败", sizeof(s_bridge_note));
         ESP_LOGE(TAG, "Unable to create bridge task");
+    }
+    if (device_config->link_mode == DEVICE_LINK_MODE_BLE) {
+        /* 蓝牙精简模式：不起 Wi-Fi，快照由 BLE 通道推送。bridge_task 仍运行——
+           其周期超时是 stale/offline 状态上屏的唯一机制（BLE 断连后由
+           publish_offline_state 驱动回落），HTTP 轮询因无 Wi-Fi 永不触发。 */
+        strlcpy(s_bridge_note, "等待蓝牙连接", sizeof(s_bridge_note));
+        ESP_LOGI(TAG, "BLE link mode: Wi-Fi station disabled");
+        ESP_LOGI(TAG, "Connectivity services started (BLE)");
+        return;
     }
     ESP_LOGI(TAG, "Starting Wi-Fi station");
     wifi_start();
@@ -1137,6 +1384,28 @@ bool connectivity_bambu_command(const char *action)
     else if (strcmp(action, "stop") == 0) command = BAMBU_COMMAND_STOP;
     else return false;
     if (xQueueSend(s_bambu_command_queue, &command, 0) != pdTRUE) return false;
+    xEventGroupSetBits(s_events, REFRESH_REQUESTED_BIT);
+    return true;
+}
+
+bool connectivity_claudecode_decision(const char *request_id, bool allow)
+{
+    if (request_id == NULL || request_id[0] == '\0' ||
+        strlen(request_id) >= CLAUDECODE_PERM_ID_MAX ||
+        strspn(request_id, "0123456789abcdef") != strlen(request_id)) {
+        return false;
+    }
+    const device_config_values_t *device_config = device_config_get();
+    if (device_config->link_mode == DEVICE_LINK_MODE_BLE) {
+        /* 蓝牙精简模式无 Wi-Fi：决策经 SYNC 特征 notify 直接上行。 */
+        ble_bridge_report_decision(request_id, allow);
+        return true;
+    }
+    if (s_decision_queue == NULL) return false;
+    claudecode_decision_t decision;
+    strlcpy(decision.id, request_id, sizeof(decision.id));
+    decision.allow = allow;
+    if (xQueueSend(s_decision_queue, &decision, 0) != pdTRUE) return false;
     xEventGroupSetBits(s_events, REFRESH_REQUESTED_BIT);
     return true;
 }

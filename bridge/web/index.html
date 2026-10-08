@@ -39,6 +39,16 @@
         <span>Bambu</span>
         <span class="module-meta" id="bambu-nav-state">读取中</span>
       </button>
+      <button class="module-tab" type="button" data-panel="zai" aria-selected="false">
+        <span class="nav-icon zai-icon" aria-hidden="true"></span>
+        <span>Z.ai</span>
+        <span class="module-meta" id="zai-nav-state">读取中</span>
+      </button>
+      <button class="module-tab" type="button" data-panel="claudecode" aria-selected="false">
+        <span class="nav-icon claudecode-icon" aria-hidden="true"></span>
+        <span>Claude Code</span>
+        <span class="module-meta" id="claudecode-nav-state">读取中</span>
+      </button>
       <button class="module-tab" type="button" data-panel="custom" aria-selected="false">
         <span class="nav-icon custom-icon" aria-hidden="true"></span>
         <span>自定义</span>
@@ -259,6 +269,148 @@
             <label class="bambu-camera-toggle"><input id="bambu-camera-enabled" type="checkbox"><span>显示打印机相机画面</span></label>
             <div class="form-actions"><button class="primary-button" type="submit">保存并连接</button><button class="quiet-button" id="bambu-reconnect" type="button">重新连接</button></div>
           </form>
+        </section>
+      </section>
+
+      <section class="panel" id="panel-zai" aria-labelledby="zai-heading" hidden>
+        <div class="section-heading">
+          <div>
+            <h2 id="zai-heading">Z.ai</h2>
+            <p>查看智谱 GLM Coding Plan 的 5 小时窗口用量与重置时间。</p>
+          </div>
+        </div>
+        <div class="module-content" id="zai-content">
+          <div class="codex-overview dual-limit" id="zai-overview">
+            <article class="usage-panel dual-limit" id="zai-usage-panel">
+              <div class="quota-overview">
+                <div class="quota-item quota-five-hour">
+                  <div class="usage-ring usage-ring-five-hour" id="zai-ring">
+                    <div class="usage-ring-inner">
+                      <span>5 小时剩余</span>
+                      <strong id="zai-five-hour-value">--</strong>
+                      <small id="zai-plan">未启用</small>
+                    </div>
+                  </div>
+                  <p class="quota-reset"><span>重置时间</span><strong id="zai-reset-date">--</strong></p>
+                </div>
+                <div class="quota-item quota-weekly">
+                  <div class="usage-ring" id="zai-weekly-ring">
+                    <div class="usage-ring-inner">
+                      <span>周剩余</span>
+                      <strong id="zai-weekly-value">--</strong>
+                      <small id="zai-weekly-plan">--</small>
+                    </div>
+                  </div>
+                  <p class="quota-reset" id="zai-weekly-reset" hidden><span>重置时间</span><strong id="zai-weekly-reset-date">--</strong></p>
+                </div>
+              </div>
+              <div class="usage-caption">
+                <span id="zai-source">等待更新</span>
+                <time id="zai-time">尚未更新</time>
+              </div>
+            </article>
+            <div class="metric-grid" aria-label="Z.ai 概览">
+              <article class="metric primary-metric"><span>连接状态</span><strong id="zai-status">未启用</strong></article>
+              <article class="metric"><span>套餐</span><strong id="zai-plan-level">--</strong></article>
+              <article class="metric"><span>最近更新</span><strong id="zai-updated">--</strong></article>
+            </div>
+          </div>
+        </div>
+        <section class="module-preferences" aria-labelledby="zai-preferences-heading">
+          <div class="module-preferences-heading">
+            <div><h3 id="zai-preferences-heading">Z.ai 设置</h3><p>使用智谱 Z.ai 的 API Key 读取个人编程套餐用量，Key 只保存在本机。</p></div>
+            <label class="module-switch">
+              <span>启用功能</span>
+              <input id="zai-enabled" type="checkbox">
+              <span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span>
+            </label>
+          </div>
+          <form class="bambu-card module-preference-card" id="zai-form">
+            <div class="card-heading"><div><h3>Z.ai 账户</h3><p>在 bigmodel.cn 的“API 管理”页面创建 API Key 后填入。</p></div><span class="status-pill" id="zai-connection">尚未配置</span></div>
+            <div class="bambu-fields settings-bambu-fields">
+              <label><span>API Key</span><input id="zai-api-key" type="password" maxlength="200" autocomplete="new-password" placeholder="请输入 Z.ai API Key"></label>
+              <label><span>平台</span>
+                <select id="zai-platform">
+                  <option value="cn">智谱国内版（open.bigmodel.cn）</option>
+                  <option value="intl">国际版 Z.ai（api.z.ai）</option>
+                </select>
+              </label>
+            </div>
+            <p class="network-note"><strong>按需选用量</strong><span>用量查询不消耗 Coding Plan 调用次数；启用前 Dotii 不会连接智谱服务。</span></p>
+            <div class="form-actions"><button class="primary-button" type="submit">保存</button></div>
+          </form>
+          <article class="dependency-panel module-preference-card" id="zai-health-panel">
+            <div class="dependency-heading">
+              <div>
+                <h3>Z.ai 运行检测</h3>
+                <p>检查网络连接、API Key 认证和用量数据解析是否正常。</p>
+              </div>
+              <span class="dependency-badge" id="zai-check-badge" data-state="idle">尚未检测</span>
+            </div>
+            <div class="dependency-details codex-check-details">
+              <div><span>网络连接</span><strong id="zai-check-network">--</strong></div>
+              <div><span>API Key 认证</span><strong id="zai-check-auth">--</strong></div>
+              <div><span>用量解析</span><strong id="zai-check-parse">--</strong></div>
+              <div><span>套餐</span><strong id="zai-check-plan">--</strong></div>
+            </div>
+            <p class="dependency-status" id="zai-check-detail" role="status" aria-live="polite">启用 Z.ai 后可运行只读检测。</p>
+            <div class="dependency-actions codex-check-actions">
+              <button class="primary-button" id="zai-check" type="button">开始检测</button>
+              <time id="zai-check-time">尚未检测</time>
+            </div>
+          </article>
+        </section>
+      </section>
+
+      <section class="panel" id="panel-claudecode" aria-labelledby="claudecode-heading" hidden>
+        <div class="section-heading">
+          <div>
+            <h2 id="claudecode-heading">Claude Code</h2>
+            <p>通过 Claude Code 官方 hooks 上报任务状态：工作中、等待操作、完成或失败。</p>
+          </div>
+        </div>
+        <div class="module-content" id="claudecode-content">
+          <div class="metric-grid" aria-label="Claude Code 概览">
+            <article class="metric primary-metric"><span>任务状态</span><strong id="claudecode-status">未启用</strong></article>
+            <article class="metric"><span>当前项目</span><strong id="claudecode-project">--</strong></article>
+            <article class="metric"><span>会话数</span><strong id="claudecode-session-count">--</strong><small id="claudecode-updated">等待事件</small></article>
+          </div>
+          <article class="bambu-card claudecode-sessions-card" id="claudecode-sessions-card" hidden>
+            <div class="card-heading"><div><h3>活动会话</h3><p>按最近活动排序，最多显示 4 个。</p></div><span class="status-pill" id="claudecode-connection">尚未连接</span></div>
+            <ul class="claudecode-session-list" id="claudecode-session-list"></ul>
+          </article>
+          <article class="bambu-card" id="claudecode-permission-card" hidden>
+            <div class="card-heading"><div><h3>等待批准的权限请求</h3><p>同时显示在 Dotii 屏上；此处也可直接处理。</p></div><span class="status-pill" id="claudecode-permission-state">等待中</span></div>
+            <ul class="claudecode-session-list" id="claudecode-permission-list"></ul>
+          </article>
+        </div>
+        <section class="module-preferences" aria-labelledby="claudecode-preferences-heading">
+          <div class="module-preferences-heading">
+            <div><h3 id="claudecode-preferences-heading">Claude Code 设置</h3><p>事件上报写入 Claude Code 的 hooks 配置，只包含状态字段，不读取对话内容。</p></div>
+            <label class="module-switch">
+              <span>启用功能</span>
+              <input id="claudecode-enabled" type="checkbox">
+              <span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span>
+            </label>
+          </div>
+          <article class="bambu-card module-preference-card" id="claudecode-hooks-card">
+            <div class="card-heading"><div><h3>事件上报</h3><p>把 Claude Code 的工作状态事件发送到本机管理中心。</p></div><span class="status-pill" id="claudecode-hooks-state">未配置</span></div>
+            <p class="bambu-help">启用后会在 <code>~/.claude/settings.json</code> 中添加 hooks：提交输入、工具调用、回合完成、需要确认和会话开始/结束时通知管理中心。修改前会自动备份为 <code>settings.json.dotii-backup</code>，原有 hooks 保持不变，可随时停用恢复。</p>
+            <div class="form-actions">
+              <button class="primary-button" id="claudecode-hooks-install" type="button">启用事件上报</button>
+              <button class="quiet-button" id="claudecode-hooks-remove" type="button">停用并清理</button>
+            </div>
+          </article>
+          <article class="bambu-card module-preference-card" id="claudecode-remote-card">
+            <div class="card-heading"><div><h3>屏上批准权限请求</h3><p>在 Dotii 圆屏上直接批准或拒绝 Claude Code 的权限请求。</p></div>
+              <label class="module-switch">
+                <span>远程批准</span>
+                <input id="claudecode-remote" type="checkbox">
+                <span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span>
+              </label>
+            </div>
+            <p class="bambu-help">需要先启用事件上报（安装 PermissionRequest hook，要求较新版本的 Claude Code）。开启后权限请求会推送到 Dotii，最长等待 300 秒；超时或未开启时，权限提示照常出现在电脑端，工作流不受影响。拒绝会附带说明发送给 Claude。</p>
+          </article>
         </section>
       </section>
 
@@ -484,7 +636,10 @@
                 <input id="auto-start" type="checkbox">
                 <span class="switch-track" aria-hidden="true"></span>
               </label>
-              <div class="runtime-row"><span>数据采集状态</span><strong id="collector-detail">正在连接</strong></div>
+              <div class="runtime-row collector-block">
+                <span>数据采集状态</span>
+                <div class="collector-grid" id="collector-status-grid"></div>
+              </div>
               <div class="runtime-row"><span>本次在线时长</span><strong id="bridge-uptime">--</strong></div>
               <div class="runtime-row"><span>管理页地址</span><strong id="local-url">正在获取</strong></div>
             </article>
@@ -603,9 +758,17 @@
               <div class="dependency-heading">
                 <div>
                   <h3>Dotii 蓝牙配网</h3>
-                  <p>发现附近设备，并安全下发局域网与管理中心配置。</p>
+                  <p id="bluetooth-heading-copy">发现附近设备，并安全下发局域网与管理中心配置。</p>
                 </div>
                 <span class="dependency-badge" id="bluetooth-badge" data-state="loading">检查中</span>
+              </div>
+              <div class="bambu-fields settings-bambu-fields bluetooth-fields">
+                <label><span>连接方式</span>
+                  <select id="bluetooth-mode" aria-label="连接方式">
+                    <option value="wifi">Wi-Fi（完整功能）</option>
+                    <option value="ble">蓝牙（推送快照，无需 Wi-Fi）</option>
+                  </select>
+                </label>
               </div>
               <div class="time-field firmware-port-field">
                 <span class="time-field-label" id="bluetooth-device-label">附近设备</span>
@@ -618,17 +781,25 @@
                 </div>
               </div>
               <div class="bambu-fields settings-bambu-fields bluetooth-fields">
-                <label><span>Wi-Fi 名称</span><input id="bluetooth-ssid" maxlength="32" autocomplete="off" placeholder="Dotii 要连接的 2.4 GHz 网络"></label>
-                <label><span>Wi-Fi 密码</span><input id="bluetooth-password" type="password" maxlength="64" autocomplete="new-password" placeholder="只发送给所选 Dotii"></label>
+                <label id="bluetooth-ssid-row"><span>Wi-Fi 名称</span><input id="bluetooth-ssid" maxlength="32" autocomplete="off" placeholder="Dotii 要连接的 2.4 GHz 网络"></label>
+                <label id="bluetooth-password-row"><span>Wi-Fi 密码</span><input id="bluetooth-password" type="password" maxlength="64" autocomplete="new-password" placeholder="只发送给所选 Dotii"></label>
               </div>
-              <p class="network-note"><strong>保持连接稳定</strong><span>Dotii 通过电脑的局域网地址连接 Dotii 管理中心，建议在路由器中为这台电脑设置 DHCP 地址保留或将 IP 与 MAC 地址绑定。</span></p>
+              <p class="network-note" id="bluetooth-network-note"><strong>保持连接稳定</strong><span>Dotii 通过电脑的局域网地址连接 Dotii 管理中心，建议在路由器中为这台电脑设置 DHCP 地址保留或将 IP 与 MAC 地址绑定。</span></p>
               <div class="dependency-status" id="bluetooth-detail">正在检查蓝牙组件</div>
               <div class="dependency-actions">
                 <button class="quiet-button" id="bluetooth-install" type="button">检查并修复</button>
                 <button class="quiet-button" id="bluetooth-scan" type="button">扫描 Dotii</button>
                 <button class="primary-button" id="bluetooth-configure" type="button" disabled>保存并连接</button>
               </div>
-              <p class="bambu-help">Wi-Fi 密码只用于本次加密蓝牙配置，不会保存在电脑端。配置成功后 Dotii 会重启并继续使用局域网高速数据链路。</p>
+              <p class="bambu-help" id="bluetooth-wifi-help">Wi-Fi 密码只用于本次加密蓝牙配置，不会保存在电脑端。配置成功后 Dotii 会重启并继续使用局域网高速数据链路。</p>
+              <p class="bambu-help" id="bluetooth-ble-help" hidden>绑定后 Dotii 不再连接 Wi-Fi，全部状态由这台电脑经加密蓝牙推送；自定义画面与相机在蓝牙模式不可用。设备重启会自动重连。</p>
+              <div class="bambu-fields settings-bambu-fields" id="ble-link-row" hidden>
+                <label><span>蓝牙推送</span><strong id="ble-link-state">推送中</strong></label>
+                <div class="form-actions" style="margin-top:0">
+                  <button class="quiet-button" id="ble-link-toggle" type="button">暂停</button>
+                </div>
+              </div>
+              <p class="bambu-help" id="ble-link-help" hidden>蓝牙模式 Dotii 的快照推送开关：暂停后不再自动连接，恢复后立即重连。设备重启等情况仍会自动重连，仅此处暂停需手动恢复。</p>
               <p class="bambu-help bluetooth-recovery-help"><strong>更换电脑：</strong>请长按 Dotii 右侧按钮进入设置，并在设置页面长按“重置配网”。设备会清除 Wi-Fi、管理中心绑定和蓝牙配对后重启，然后即可在这台电脑上重新配网。</p>
             </article>
 

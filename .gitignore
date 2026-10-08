@@ -12,4 +12,6 @@ __pycache__/
 release/
 tools/
 .vscode/
+.venv/
 .DS_Store
+.cache/

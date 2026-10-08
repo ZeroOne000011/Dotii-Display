@@ -32,6 +32,7 @@
 #define AXP2101_BAT_VOLTAGE_L 0x35
 #define AXP2101_SYS_VOLTAGE_H 0x3A
 #define AXP2101_SYS_VOLTAGE_L 0x3B
+#define AXP2101_GAUGE_CTRL 0x18
 #define AXP2101_TS_PIN_CTRL 0x50
 #define AXP2101_BAT_DETECT_CTRL 0x68
 #define AXP2101_BAT_PERCENT 0xA4
@@ -115,10 +116,15 @@ static bool pmu_start(void)
      * channels needed for supply diagnostics. Charging current/voltage are
      * intentionally left untouched because the attached cell capacity is not
      * known to the firmware.
+     *
+     * The E-Gauge module must be enabled explicitly (reg 0x18 bit3, POR
+     * default off); without it the percentage register (0xA4) stays at the
+     * power-on default 0 forever.
      */
     const bool pmu_configured =
         pmu_update_bits(AXP2101_TS_PIN_CTRL, 0x1F, 0x10) &&
         pmu_update_bits(AXP2101_BAT_DETECT_CTRL, 0x01, 0x01) &&
+        pmu_update_bits(AXP2101_GAUGE_CTRL, 0x08, 0x08) &&
         pmu_update_bits(AXP2101_ADC_CHANNEL_CTRL, 0x0B, 0x09);
     if (!pmu_configured) {
         ESP_LOGW(TAG, "AXP2101 configuration failed; initialization will retry");

@@ -74,7 +74,28 @@ def _configuration_payload(
     bridge_url: str,
     bridge_token: str,
     current_token: Any = "",
+    mode: str = "wifi",
 ) -> bytes:
+    if mode == "ble":
+        # 蓝牙精简模式绑定：设备不需要 Wi-Fi 凭证与地址。
+        if not isinstance(bridge_token, str) or not 16 <= len(bridge_token) <= 64:
+            raise ValueError("设备访问令牌无效")
+        if not isinstance(current_token, str):
+            raise ValueError("当前设备令牌无效")
+        body = json.dumps(
+            {
+                "v": 1,
+                "op": "configure",
+                "mode": "ble",
+                "auth": current_token or bridge_token,
+                "bridge_token": bridge_token,
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        if len(body) > MAX_CONFIG_BYTES:
+            raise ValueError("蓝牙配置数据过长")
+        return body
     if not isinstance(ssid, str) or not 1 <= len(ssid.encode("utf-8")) <= 32:
         raise ValueError("Wi-Fi 名称必须为 1–32 字节")
     if not isinstance(password, str) or len(password.encode("utf-8")) > 64:
@@ -134,6 +155,8 @@ class BluetoothBridge:
         self.lock = threading.RLock()
         self.operation_lock = threading.Lock()
         self.stop_event = threading.Event()
+        # BLE 推送长连接活跃探测（main() 装配注入）；活跃时 monitor 让路。
+        self.link_active_probe: "Callable[[], bool] | None" = None
         self.worker: threading.Thread | None = None
         self.monitor: threading.Thread | None = None
         self.devices: list[dict[str, Any]] = []
@@ -368,6 +391,8 @@ class BluetoothBridge:
                 self.operation_detail = f"蓝牙扫描失败：{detail}"
                 self.updated_at_epoch = int(time.time())
 
+    on_configured: Callable[[str, str], None] | None = None
+
     def start_configure(
         self,
         *,
@@ -377,6 +402,7 @@ class BluetoothBridge:
         bridge_url: str,
         bridge_token: str,
         current_token: Any = "",
+        mode: str = "wifi",
     ) -> bool:
         if not self.platform.bluetooth_available:
             raise ValueError("当前平台尚未支持 Dotii 蓝牙配网")
@@ -384,6 +410,8 @@ class BluetoothBridge:
             raise ValueError("请先安装蓝牙连接组件")
         if not isinstance(address, str) or not address or len(address) > 80:
             raise ValueError("请选择 Dotii")
+        if mode not in {"wifi", "ble"}:
+            raise ValueError("连接方式必须是 wifi 或 ble")
         known = {item["address"] for item in self.devices}
         if address not in known and address != self.last_address:
             raise ValueError("请重新扫描并选择 Dotii")
@@ -393,8 +421,9 @@ class BluetoothBridge:
             bridge_url=bridge_url,
             bridge_token=bridge_token,
             current_token=current_token,
+            mode=mode,
         )
-        return self._start_worker(self._configure, address, body, name="dotii-ble-configure")
+        return self._start_worker(self._configure, address, body, mode, name="dotii-ble-configure")
 
     async def _configure_once(self, client_class: Any, target: Any, body: bytes) -> dict[str, Any]:
         response_event = asyncio.Event()
@@ -457,7 +486,7 @@ class BluetoothBridge:
             await asyncio.sleep(0.75)
             return await self._configure_once(client_class, target, body)
 
-    def _configure(self, address: str, body: bytes) -> None:
+    def _configure(self, address: str, body: bytes, mode: str = "wifi") -> None:
         try:
             with self.operation_lock:
                 response = asyncio.run(self._configure_async(address, body))
@@ -465,6 +494,12 @@ class BluetoothBridge:
                 raise OSError(f"Dotii 拒绝配置：{response.get('error', 'unknown')}" )
             self.last_address = address
             self._save_last_address(address)
+            if self.on_configured is not None:
+                # 通知 BLE 数据通道更新绑定（蓝牙模式设备配对后开始推送）。
+                try:
+                    self.on_configured(address, mode)
+                except Exception:
+                    pass
             with self.lock:
                 self.permission_state = "allowed"
                 self.operation_state = "success"
@@ -495,6 +530,11 @@ class BluetoothBridge:
         first_run = True
         while first_run or not self.stop_event.wait(15):
             first_run = False
+            # BLE 精简模式长连接占用设备（同一时刻只接受一个中心连接），
+            # 推送会话活跃时跳过状态探测，避免周期性打断推送。
+            probe = self.link_active_probe
+            if probe is not None and probe():
+                continue
             if not self.last_address or not self.dependency_ready() or not self.operation_lock.acquire(False):
                 continue
             try:
@@ -540,3 +580,232 @@ class BluetoothBridge:
 
     def stop(self) -> None:
         self.stop_event.set()
+
+
+SNAPSHOT_UUID = "7b4e0005-4db4-4c72-a729-ea5187241a43"
+SYNC_UUID = "7b4e0006-4db4-4c72-a729-ea5187241a43"
+BLE_LINK_CONFIG_NAME = "ble-link.json"
+BLE_LINK_BACKOFF_SECONDS = (2.0, 5.0, 15.0, 60.0)
+
+
+class BleLinkService:
+    """蓝牙精简模式：与绑定的 Dotii 保持连接并推送快照。
+
+    快照经 SNAPSHOT 特征分包写入（协议见 ``ble_link.py``）；设备通过
+    SYNC 特征通知请求重发。仅在管理页完成蓝牙模式绑定（写入
+    ``ble-link.json``）后工作，未启用时静默待命。
+    """
+
+    def __init__(self, bluetooth: "BluetoothBridge", runtime_folder: Path,
+                 snapshot_provider: Callable[[], str],
+                 on_decision: "Callable[[str, bool], bool] | None" = None) -> None:
+        import ble_link
+
+        self._ble_link = ble_link
+        self._bluetooth = bluetooth
+        self._runtime_folder = runtime_folder
+        self._snapshot_provider = snapshot_provider
+        # 设备经 SYNC 上行的权限决策（Dotii 屏上批准/拒绝 Claude Code 请求）。
+        self._on_decision = on_decision
+        self._config_path = runtime_folder / BLE_LINK_CONFIG_NAME
+        self._stop = threading.Event()
+        self._wake = threading.Event()
+        self._lock = threading.Lock()
+        self._thread: threading.Thread | None = None
+        with self._lock:
+            self._enabled = False
+            self._address = ""
+            self._connected = False
+            self._paused = False
+            self._user_paused = False
+            self._paused_until = 0.0
+            self._revision = 0
+            # 序号初值取时间戳：服务重启后仍高于设备已接受的序号。
+            self._sequence = int(time.time())
+            self._pushed_at = 0.0
+            self._error = ""
+        self._load_config()
+
+    # -- 配置持久化 -------------------------------------------------
+
+    def _load_config(self) -> None:
+        try:
+            data = json.loads(self._config_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return
+        if not isinstance(data, dict):
+            return
+        with self._lock:
+            self._enabled = bool(data.get("enabled"))
+            address = data.get("address")
+            self._address = address if isinstance(address, str) else ""
+
+    def _save_config(self) -> None:
+        with self._lock:
+            data = {"enabled": self._enabled, "address": self._address}
+        self._config_path.parent.mkdir(parents=True, exist_ok=True)
+        # 原子写：断电/崩溃留下的半个 JSON 会让绑定静默丢失（与 store 惯例一致）。
+        temporary = self._config_path.with_name(self._config_path.name + ".tmp")
+        temporary.write_text(
+            json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        temporary.replace(self._config_path)
+
+    def set_binding(self, enabled: bool, address: str = "") -> None:
+        with self._lock:
+            self._enabled = enabled
+            if address:
+                self._address = address
+            self._error = ""
+            if enabled:
+                self._paused = False
+                self._paused_until = 0.0
+        self._save_config()
+        self._wake.set()
+
+    # -- 生命周期 ---------------------------------------------------
+
+    def start(self) -> None:
+        if self._thread is not None and self._thread.is_alive():
+            return
+        self._stop.clear()
+        self._thread = threading.Thread(target=self._run, name="dotii-ble-link", daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        self._wake.set()
+        if self._thread is not None:
+            self._thread.join(timeout=5)
+
+    def pause(self, seconds: float | None = 120.0) -> None:
+        """暂停推送。``seconds=None`` 为用户主动暂停（不自动恢复，
+        仅 resume/set_binding 恢复）；带时长用于配网让出连接。"""
+        import time as _time
+
+        with self._lock:
+            self._paused = True
+            self._user_paused = seconds is None
+            self._paused_until = 0.0 if seconds is None else _time.monotonic() + seconds
+            self._connected = False
+        self._wake.set()
+
+    def resume(self) -> None:
+        with self._lock:
+            self._paused = False
+            self._user_paused = False
+            self._paused_until = 0.0
+        self._wake.set()
+
+    def snapshot(self) -> dict[str, Any]:
+        with self._lock:
+            return {
+                "enabled": self._enabled,
+                "address": self._address,
+                "connected": self._connected,
+                "paused": self._paused and self._user_paused,
+                "revision": self._revision,
+                "last_push_epoch": int(self._pushed_at),
+                "last_error": self._error,
+            }
+
+    # -- 主循环 -----------------------------------------------------
+
+    def _run(self) -> None:
+        backoff_index = 0
+        while not self._stop.is_set():
+            import time as _time
+
+            with self._lock:
+                if self._paused and not self._user_paused and _time.monotonic() > self._paused_until:
+                    self._paused = False  # 限时让路（配网）超时自动恢复；用户暂停不自动恢复
+                ready = self._enabled and bool(self._address) and not self._paused
+            if not ready:
+                self._wake.wait(5.0)
+                self._wake.clear()
+                continue
+            try:
+                asyncio.run(self._session())
+                backoff_index = 0
+            except Exception as error:  # 连接中断/蓝牙栈错误：退避重连
+                with self._lock:
+                    self._connected = False
+                    self._error = str(error)[:120]
+                backoff_index = min(backoff_index + 1, len(BLE_LINK_BACKOFF_SECONDS) - 1)
+            delay = BLE_LINK_BACKOFF_SECONDS[backoff_index]
+            # _wake 同样打断退避等待：resume 后立即重试，无需等完整个退避周期。
+            self._wake.wait(delay)
+            self._wake.clear()
+
+    async def _session(self) -> None:
+        client_class, _ = self._bluetooth._bleak()
+        with self._bluetooth.lock:
+            target = self._address if self._bluetooth.platform.name == "macos" \
+                else self._bluetooth._ble_devices.get(self._address, self._address)
+        session_address = self._address
+        resend = asyncio.Event()
+
+        def on_sync(_: Any, data: bytearray) -> None:
+            try:
+                notice = json.loads(bytes(data).decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                return
+            if not isinstance(notice, dict):
+                return
+            if notice.get("resend"):
+                resend.set()
+            decision = notice.get("decision")
+            if isinstance(decision, dict) and self._on_decision is not None:
+                request_id = decision.get("id")
+                allow = decision.get("allow")
+                if isinstance(request_id, str) and isinstance(allow, bool):
+                    self._on_decision(request_id, allow)
+
+        async with client_class(
+            target,
+            timeout=45.0 if self._bluetooth.platform.name == "macos" else 30.0,
+            pair=self._bluetooth.platform.bluetooth_pair_on_connect,
+        ) as client:
+            with self._lock:
+                self._connected = True
+                self._error = ""
+            # 连接后读 STATUS 刷新设备实测模式（管理页配网下拉的默认值来源）。
+            try:
+                raw = await client.read_gatt_char(STATUS_UUID)
+                status = json.loads(bytes(raw).decode("utf-8"))
+                if isinstance(status, dict):
+                    with self._bluetooth.lock:
+                        self._bluetooth.device_status = status
+            except Exception:
+                pass
+            await client.start_notify(SYNC_UUID, on_sync)
+            throttle = self._ble_link.PushThrottle(interval=2.0)
+            while not self._stop.is_set():
+                with self._lock:
+                    if self._paused:
+                        return  # 暂停：退出会话（async with 退出即断开连接）
+                    # 绑定变化（换地址/解绑）：旧地址的会话不再推送。
+                    if not self._enabled or self._address != session_address:
+                        return
+                payload = self._snapshot_provider().encode("utf-8")
+                content_revision = self._ble_link.payload_revision(payload)
+                force = resend.is_set()
+                if force or throttle.should_send(content_revision):
+                    resend.clear()
+                    # revision 必须单调递增（内容 CRC 无单调性，会被设备当旧包丢弃）；
+                    # 内容变化判据走 throttle 的 content_revision，传输序号独立递增。
+                    with self._lock:
+                        self._sequence += 1
+                        sequence = self._sequence
+                    for packet in self._ble_link.snapshot_packets(payload, sequence):
+                        await client.write_gatt_char(SNAPSHOT_UUID, packet, response=True)
+                    with self._lock:
+                        # 上报传输序号（设备持有的版本，单调递增）；
+                        # 内容 CRC 只是节流的幂等判据，展示出来不单调。
+                        self._revision = sequence
+                        import time as _time
+                        self._pushed_at = _time.time()
+                # 2 秒推送节拍；不能用 wait_for+shield 等 stop——超时后 shield
+                # 内层任务无人取消，每轮泄漏一个存活任务（长连接 CPU 线性劣化）。
+                await asyncio.sleep(2.0)
+                if self._stop.is_set():
+                    break

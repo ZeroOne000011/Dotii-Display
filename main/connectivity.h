@@ -6,6 +6,7 @@
 
 void connectivity_start(void);
 void connectivity_request_refresh(void);
+bool connectivity_ingest_snapshot(const char *json, uint32_t length);
 bool connectivity_is_wifi_connected(void);
 void connectivity_get_summary(char *buffer, size_t buffer_size);
 void connectivity_get_ip(char *buffer, size_t buffer_size);
@@ -13,3 +14,4 @@ void connectivity_get_bridge_summary(char *buffer, size_t buffer_size);
 const uint8_t *connectivity_custom_image_data(uint32_t revision);
 const uint8_t *connectivity_bambu_camera_data(uint32_t revision);
 bool connectivity_bambu_command(const char *action);
+bool connectivity_claudecode_decision(const char *request_id, bool allow);
