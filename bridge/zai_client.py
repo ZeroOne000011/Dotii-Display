@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import http.client
 import json
+import logging
 import threading
 import time
 from datetime import datetime
@@ -20,6 +21,7 @@ MAX_BACKOFF_SECONDS = 600.0
 REQUEST_TIMEOUT_SECONDS = 10.0
 IDLE_WAIT_SECONDS = 5.0
 MAX_STALE_SECONDS = 1800.0
+SLEEP_RESUME_JUMP_SECONDS = 30.0
 QUOTA_PATH = "/api/monitor/usage/quota/limit"
 MAX_RESPONSE_BYTES = 65536
 
@@ -400,8 +402,29 @@ class ZaiService:
         result["detail"] = "Z.ai 用量读取正常"
         return result
 
+    def _wait_backoff(self, backoff: float) -> bool:
+        """退避分片等待；reconfigure 的 _wake 与系统唤醒都能立即打断。
+
+        返回 True 表示检测到系统唤醒：monotonic 不计进程冻结时间，墙钟
+        远超单调流逝说明刚从睡眠恢复——网络可能才随唤醒重连，剩余退避
+        作废、立即重试，避免唤醒后还要等满退避才恢复数据。
+        """
+        mono_start = time.monotonic()
+        wall_start = time.time()
+        deadline = mono_start + backoff
+        while not self._stop.is_set() and not self._wake.is_set():
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            self._stop.wait(min(5.0, remaining))
+            if time.time() - wall_start - (time.monotonic() - mono_start) > SLEEP_RESUME_JUMP_SECONDS:
+                return True
+        self._wake.clear()
+        return False
+
     def _run(self) -> None:
         backoff = POLL_INTERVAL_SECONDS
+        logged_business_error = ""
         while not self._stop.is_set():
             config = self.config_store.public()
             if not self._enabled() or not config["configured"]:
@@ -410,6 +433,7 @@ class ZaiService:
                     self._last_success = 0.0
                     self._last_error = ""
                 backoff = POLL_INTERVAL_SECONDS
+                logged_business_error = ""
                 self._wake.wait(IDLE_WAIT_SECONDS)
                 self._wake.clear()
                 continue
@@ -421,19 +445,19 @@ class ZaiService:
                     if not self._last_error:
                         self._last_success = time.time()
                 backoff = POLL_INTERVAL_SECONDS
+                business_error = usage.get("error", "")
+                if business_error and business_error != logged_business_error:
+                    # 间歇故障的事后排查依据：失败原因进 bridge.log；
+                    # 文本变化时才记，避免两分钟轮询刷屏。
+                    logging.warning("Zai 用量读取异常：%s", business_error)
+                logged_business_error = business_error
             except ZaiError as error:
                 with self._lock:
                     self._last_error = str(error)[:63]
                 backoff = min(backoff * 2, MAX_BACKOFF_SECONDS)
-            # 退避分片等待：reconfigure 的 _wake 能立即打断——否则改完
-            # API key 最长要等满 600 秒退避才用新配置请求。
-            deadline = time.monotonic() + backoff
-            while not self._stop.is_set() and not self._wake.is_set():
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    break
-                self._stop.wait(min(5.0, remaining))
-            self._wake.clear()
+                logging.warning("Zai 用量请求失败：%s（%.0f 秒后重试）", error, backoff)
+            if self._wait_backoff(backoff):
+                backoff = POLL_INTERVAL_SECONDS
 
     def snapshot(self) -> dict[str, Any]:
         config = self.config_store.public()

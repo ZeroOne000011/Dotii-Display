@@ -5,12 +5,14 @@ import tempfile
 import unittest
 from datetime import datetime
 from pathlib import Path
+from unittest import mock
 
 BRIDGE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BRIDGE))
 
 from zai_client import (  # noqa: E402
     ZaiConfigStore,
+    ZaiError,
     ZaiService,
     usage_snapshot,
 )
@@ -254,6 +256,64 @@ class ZaiServiceStateTests(unittest.TestCase):
             self.assertFalse(snapshot["connected"])
             self.assertEqual(snapshot["service_state"], "error")
             self.assertEqual(snapshot["last_error"], "token expired or incorrect")
+
+
+class ZaiServiceLoggingAndBackoffTests(unittest.TestCase):
+    @staticmethod
+    def _service(temporary: str) -> ZaiService:
+        config = ZaiConfigStore(Path(temporary) / "zai.json")
+        config.write({"api_key": "key", "platform": "cn"})
+        return ZaiService(config, lambda: True)
+
+    @staticmethod
+    def _stop_after(wait_count: int, service: ZaiService):
+        """让 _run 在第 wait_count 次退避等待后退出循环。"""
+        waits = iter(range(wait_count + 1))
+
+        def fake_wait(backoff: float) -> bool:
+            if next(waits) >= wait_count:
+                service._stop.set()
+            return False
+
+        return fake_wait
+
+    def test_request_failure_is_logged(self) -> None:
+        with tempfile.TemporaryDirectory(dir=BRIDGE.parent / ".codx") as temporary:
+            service = self._service(temporary)
+            service._fetch = mock.Mock(side_effect=[ZaiError("无法连接 host"), {"error": ""}])
+            with mock.patch.object(service, "_wait_backoff",
+                                   side_effect=self._stop_after(1, service)):
+                with self.assertLogs(level="WARNING") as logs:
+                    service._run()
+            self.assertTrue(any("无法连接 host" in line for line in logs.output))
+
+    def test_business_error_logged_only_when_text_changes(self) -> None:
+        with tempfile.TemporaryDirectory(dir=BRIDGE.parent / ".codx") as temporary:
+            service = self._service(temporary)
+            service._fetch = mock.Mock(side_effect=[
+                {"error": "接口返回失败"},
+                {"error": "接口返回失败"},
+                {"error": ""},
+            ])
+            with mock.patch.object(service, "_wait_backoff",
+                                   side_effect=self._stop_after(2, service)):
+                with self.assertLogs(level="WARNING") as logs:
+                    service._run()
+            self.assertEqual(sum("接口返回失败" in line for line in logs.output), 1)
+
+    def test_backoff_wait_breaks_on_system_wake_jump(self) -> None:
+        with tempfile.TemporaryDirectory(dir=BRIDGE.parent / ".codx") as temporary:
+            service = self._service(temporary)
+            # wall_start=1000，首片等待后墙钟已到 1060：60 秒冻结。
+            times = iter([1000.0, 1060.0])
+            with mock.patch("time.time", side_effect=lambda: next(times)):
+                woke = service._wait_backoff(0.3)
+            self.assertTrue(woke)
+
+    def test_backoff_wait_returns_false_when_clocks_agree(self) -> None:
+        with tempfile.TemporaryDirectory(dir=BRIDGE.parent / ".codx") as temporary:
+            service = self._service(temporary)
+            self.assertFalse(service._wait_backoff(0.1))
 
 
 if __name__ == "__main__":
