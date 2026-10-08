@@ -45,8 +45,8 @@ Dotii 是一套由 ESP32-S3 圆形 AMOLED 桌面屏与 Windows/macOS 端“Dotii
 
 ## macOS 快速上手
 
-1. 从 [macOS Release](../../releases/tag/v1.3.0-ble.1-macos.1) 下载 DMG。当前版本仅支持 Apple Silicon Mac 和 macOS 13 及以上。
-2. 打开 DMG，将 `DotiiManagementCenter-1.3.0-ble.1.app` 拖到“应用程序”。
+1. 从 [macOS Release](../../releases/tag/v1.3.0-ble.1-macos.2) 下载 DMG。当前版本仅支持 Apple Silicon Mac 和 macOS 13 及以上。
+2. 打开 DMG，将 `DotiiManagementCenter` 拖到“应用程序”。
 3. 从“应用程序”打开 Dotii 管理中心。如果系统阻止启动，请打开“系统设置 > 隐私与安全性”，在对应提示旁选择“仍要打开”，然后再次确认。
 4. 首次扫描 Dotii 时允许蓝牙权限；连接 Dotii 或 Bambu 时按系统提示允许本地网络权限。
 5. 应用启动后会驻留在菜单栏。后续烧录、蓝牙配网及模块设置均在管理页面中完成。
