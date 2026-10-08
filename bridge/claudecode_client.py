@@ -230,6 +230,7 @@ class PermissionBroker:
         request_id = secrets.token_hex(6)
         entry = {
             "tool": _truncate_utf8(tool_name, 20),
+            "session": str(payload.get("session_id") or "")[:128],
             "preview": _preview_text(tool_name, payload.get("tool_input")),
             "project": _project_name(payload.get("cwd")),
             "expires_at": time.time() + timeout,
@@ -259,6 +260,25 @@ class PermissionBroker:
             entry["decision"] = {"behavior": "allow" if allow else "deny"}
             entry["event"].set()
             return True
+
+    def abandon_for_session_tool(self, session_id: str, tool_name: str) -> int:
+        """用户已在电脑端处理提示：撤销同会话同工具的屏上等待.
+
+        PermissionRequest hold 期间 Claude Code 仍显示本机提示——用户直接
+        在电脑上批准时设备无从得知，确认页会空等满 300 秒。PostToolUse
+        （工具已执行）是「提示已被批准」的信号：唤醒对应 hook 线程返回
+        空决策（迟到决策无意义），pending 随之清除、屏上退出。
+        """
+        if not isinstance(session_id, str) or not session_id:
+            return 0
+        tool = _truncate_utf8(str(tool_name or ""), 20)
+        abandoned = 0
+        with self._lock:
+            for entry in self._pending.values():
+                if entry.get("session") == session_id and entry["tool"] == tool:
+                    entry["event"].set()
+                    abandoned += 1
+        return abandoned
 
     def snapshot(self) -> dict[str, Any]:
         with self._lock:

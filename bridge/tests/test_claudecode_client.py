@@ -255,6 +255,33 @@ class PermissionBrokerTests(unittest.TestCase):
         self.assertEqual(result["decision"], {"behavior": "allow"})
         self.assertIsNone(broker.snapshot()["pending"])
 
+    def test_post_tool_use_abandons_pending_for_same_session_and_tool(self) -> None:
+        """用户在电脑端批准（提示与 hold 并行显示）：PostToolUse 撤销
+        同会话同工具的等待——hook 空决策返回、快照 pending 清除。"""
+        broker = PermissionBroker()
+        broker.set_mode(True)
+        thread, result = self._submit_in_thread(
+            broker, self._submit(broker, "Bash", tool_input={"command": "git push"}))
+
+        self.assertEqual(
+            broker.abandon_for_session_tool("s1", "Bash"), 1)
+        thread.join(2.0)
+        self.assertIsNone(result["decision"])
+        self.assertIsNone(broker.snapshot()["pending"])
+
+    def test_abandon_ignores_other_sessions_and_tools(self) -> None:
+        broker = PermissionBroker()
+        broker.set_mode(True)
+        thread, result = self._submit_in_thread(
+            broker, self._submit(broker, "Bash", tool_input={"command": "git push"}))
+
+        self.assertEqual(broker.abandon_for_session_tool("s2", "Bash"), 0)
+        self.assertEqual(broker.abandon_for_session_tool("s1", "Write"), 0)
+        self.assertEqual(broker.abandon_for_session_tool("", "Bash"), 0)
+        self.assertIsNotNone(broker.snapshot()["pending"])
+
+        thread.join(2.0)
+
     def test_timeout_returns_none_and_leaves_fail_open(self) -> None:
         broker = PermissionBroker()
         broker.set_mode(True)

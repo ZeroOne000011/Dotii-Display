@@ -1504,6 +1504,13 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 # 大小上限由 _read_json 的 MAX_BODY 兜底。
                 payload = self._read_admin_action()
                 self.bridge.claudecode.record_event(payload)
+                # 用户已在电脑端批准（提示与 hook hold 并行显示）：PostToolUse
+                # 说明该工具已放行执行，撤销屏上同会话同工具的权限等待。
+                if str(payload.get("hook_event_name") or "") == "PostToolUse":
+                    self.bridge.claudecode_permission.abandon_for_session_tool(
+                        str(payload.get("session_id") or ""),
+                        str(payload.get("tool_name") or ""),
+                    )
                 self._send_json(HTTPStatus.OK, {"ok": True})
             except (OSError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as error:
                 self._send_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
