@@ -102,96 +102,14 @@ void app_state_publish(const codex_snapshot_t *snapshot)
     }
 }
 
-void app_state_make_preview(codex_snapshot_t *snapshot)
+/* 快照里是否有真实数据：preview_data 只说明 Codex 段是种子，服务端
+   实时注入的 zai/bambu/claudecode 模块不受影响——任一在线即有真数据。 */
+bool app_state_has_real_data(const codex_snapshot_t *snapshot)
 {
-    memset(snapshot, 0, sizeof(*snapshot));
-    snapshot->valid = true;
-    snapshot->preview_data = true;
-    snapshot->source_online = false;
-    snapshot->five_hour_available = true;
-    snapshot->weekly_available = true;
-    snapshot->weekly_tokens_available = true;
-    snapshot->task_tokens_available = true;
-    snapshot->conversation_mode = CODEX_CONVERSATION_PROGRESS;
-    snapshot->codex_enabled = true;
-    snapshot->bambu_enabled = true;
-    snapshot->custom_enabled = true;
-    snapshot->dotii_enabled = true;
-    snapshot->custom_ring_enabled = true;
-    snapshot->bambu_configured = true;
-    snapshot->bambu_connected = true;
-    snapshot->bambu_commandable = true;
-    snapshot->docked_rotation_tenths = 840;
-    snapshot->screen_off_timeout_seconds = 60;
-    snapshot->sleep_timeout_seconds = 300;
-    snapshot->charging_screen_off_timeout_seconds = 60;
-    snapshot->charging_sleep_timeout_seconds = 300;
-    snapshot->five_hour_remaining_percent = 68;
-    snapshot->bambu_status = BAMBU_STATUS_PRINTING;
-    snapshot->dotii_expression = DOTII_EXPRESSION_WORKING;
-    snapshot->dotii_state_assigned = true;
-    snapshot->dotii_state_duration_ms = 0;
-    snapshot->dotii_state_token = 1;
-    snapshot->dotii_touch_expression = DOTII_EXPRESSION_TOUCH_RESPONSE;
-    snapshot->dotii_blink_expression = DOTII_EXPRESSION_BLINK;
-    snapshot->dotii_long_idle_expression = DOTII_EXPRESSION_SLEEPY_YAWN;
-    for (size_t index = 0; index < DOTII_EXPRESSION_COUNT; index++) {
-        snapshot->dotii_expression_durations_ms[index] = 800;
-    }
-    snapshot->dotii_expression_durations_ms[DOTII_EXPRESSION_TOUCH_RESPONSE] = 1200;
-    snapshot->bambu_progress = 68;
-    snapshot->bambu_remaining_minutes = 42;
-    snapshot->bambu_layer_current = 87;
-    snapshot->bambu_layer_total = 142;
-    snapshot->bambu_nozzle_temperature = 220;
-    snapshot->bambu_bed_temperature = 55;
-    snapshot->bambu_finish_at = time(NULL) + 42 * 60;
-    snapshot->bambu_updated_at = time(NULL);
-    snapshot->weekly_remaining_percent = 68;
-    snapshot->weekly_tokens = 18420;
-    snapshot->status = CODEX_STATUS_WORKING;
-    snapshot->duration_seconds = 754;
-    snapshot->message_count = 1;
-    snapshot->task_tokens = 18420;
-    snapshot->plan_completed = 2;
-    snapshot->plan_total = 4;
-    snapshot->custom_accent = 0xF2C66D;
-    snapshot->custom_ring_start = 0xF2C66D;
-    snapshot->custom_ring_end = 0x5DA9FF;
-    snapshot->generated_at = time(NULL);
-    strlcpy(snapshot->five_hour_reset_date, "08-18 14:40", sizeof(snapshot->five_hour_reset_date));
-    strlcpy(snapshot->reset_date, "08-18 10:00", sizeof(snapshot->reset_date));
-    strlcpy(snapshot->title, "等待 Codex 任务", sizeof(snapshot->title));
-    strlcpy(snapshot->last_user_message, "请在电脑端启动 Dotii 管理中心。", sizeof(snapshot->last_user_message));
-    strlcpy(snapshot->last_assistant_message, "Dotii 正在等待 Codex 任务数据。", sizeof(snapshot->last_assistant_message));
-    snapshot->conversation_message_count = 2;
-    strlcpy(snapshot->conversation_text,
-            "正在连接 Dotii 管理中心。\n\n正在等待 Codex 数据更新。",
-            sizeof(snapshot->conversation_text));
-    strlcpy(snapshot->current_action, "等待数据更新", sizeof(snapshot->current_action));
-    strlcpy(snapshot->plan_type, "preview", sizeof(snapshot->plan_type));
-    strlcpy(snapshot->custom_title, "我的页面", sizeof(snapshot->custom_title));
-    strlcpy(snapshot->custom_value, "你好，Dotii", sizeof(snapshot->custom_value));
-    strlcpy(snapshot->custom_body, "这是从 Dotii 管理中心同步的自定义界面。", sizeof(snapshot->custom_body));
-    strlcpy(snapshot->custom_footer, "自定义内容", sizeof(snapshot->custom_footer));
-    strlcpy(snapshot->bambu_name, "Bambu Lab", sizeof(snapshot->bambu_name));
-    strlcpy(snapshot->bambu_status_text, "打印中", sizeof(snapshot->bambu_status_text));
-    strlcpy(snapshot->bambu_filename, "可爱机器人外壳.3mf", sizeof(snapshot->bambu_filename));
-    strlcpy(snapshot->bambu_filament, "PLA Basic", sizeof(snapshot->bambu_filament));
-
-    codex_task_detail_t task = {
-        .status = snapshot->status,
-        .conversation_mode = snapshot->conversation_mode,
-        .duration_seconds = snapshot->duration_seconds,
-        .message_count = snapshot->message_count,
-        .started_at = time(NULL) - snapshot->duration_seconds,
-        .updated_at = time(NULL),
-    };
-    strlcpy(task.thread_id, "preview-thread", sizeof(task.thread_id));
-    strlcpy(task.title, snapshot->title, sizeof(task.title));
-    task.last_user_message = snapshot->last_user_message;
-    task.conversation_text = snapshot->conversation_text;
-    app_state_tasks_publish(&task, 1);
+    if (snapshot == NULL || !snapshot->valid) return false;
+    if (!snapshot->preview_data) return true;
+    return snapshot->zai_connected || snapshot->bambu_connected ||
+           snapshot->claudecode_connected;
 }
 
 const char *app_state_bambu_status_text(bambu_status_t status)

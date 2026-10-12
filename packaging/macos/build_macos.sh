@@ -57,7 +57,7 @@ xcodebuild \
   build
 
 SOURCE_APP="$DERIVED/Build/Products/Release/DotiiManagementCenter.app"
-APP="$OUTPUT/DotiiManagementCenter-$VERSION.app"
+APP="$OUTPUT/Dotii.app"
 /usr/bin/ditto "$SOURCE_APP" "$APP"
 /bin/mkdir -p "$APP/Contents/Resources"
 /usr/bin/ditto "$WORK/pyinstaller-dist/DotiiBridge" "$APP/Contents/Resources/DotiiBridgeRuntime"

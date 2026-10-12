@@ -22,6 +22,11 @@ const state = {
   },
   moduleSaving: {},
   bambuLoaded: false,
+  zaiLoaded: false,
+  zaiChecking: false,
+  zaiCheck: null,
+  claudecodeBusy: false,
+  bluetoothModeTouched: false,
   displayDirty: false,
   displaySaving: false,
   codexUiSaving: false,
@@ -273,6 +278,32 @@ function renderDotiiConfigEditor() {
   ]));
   list.replaceChildren();
 
+  /* 自动返回表情页开关：其他页面 30 秒无交互自动切回 Dotii。 */
+  const returnRow = document.createElement("article");
+  returnRow.className = "dotii-fixed-row";
+  const returnHeading = document.createElement("div");
+  returnHeading.className = "dotii-fixed-heading";
+  const returnTitle = document.createElement("strong");
+  returnTitle.textContent = "自动返回表情页";
+  const returnSwitch = document.createElement("label");
+  returnSwitch.className = "module-switch";
+  const returnInput = document.createElement("input");
+  returnInput.type = "checkbox";
+  returnInput.checked = state.dotiiConfig.return_to_dotii === true;
+  returnInput.addEventListener("change", () => {
+    state.dotiiConfig.return_to_dotii = returnInput.checked;
+    markDotiiConfigDirty();
+  });
+  const returnTrack = document.createElement("span");
+  returnTrack.className = "switch-track";
+  const returnThumb = document.createElement("span");
+  returnThumb.className = "switch-thumb";
+  returnTrack.append(returnThumb);
+  returnSwitch.append(document.createTextNode("其他页面 30 秒无操作自动切回"), returnInput, returnTrack);
+  returnHeading.append(returnTitle, returnSwitch);
+  returnRow.append(returnHeading);
+  list.append(returnRow);
+
   const fixedRow = document.createElement("article");
   fixedRow.className = "dotii-fixed-row";
   const fixedHeading = document.createElement("div");
@@ -426,7 +457,10 @@ async function saveDotiiConfig(event) {
     const response = await fetch("/api/v1/admin/dotii", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ animations: state.dotiiConfig.animations }),
+      body: JSON.stringify({
+        animations: state.dotiiConfig.animations,
+        return_to_dotii: state.dotiiConfig.return_to_dotii === true,
+      }),
     });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "动画设置保存失败");
@@ -691,13 +725,270 @@ function renderBambu(bambu = {}, config = {}, enabled = true) {
   setText("bambu-nav-state", !enabled ? "已关闭" : connected ? (bambu.status_text || "在线") : configured ? "连接中" : "添加打印机");
 }
 
+const BIGMODEL_STATE_TEXT = {
+  disabled: "未启用",
+  needs_configuration: "待配置",
+  connecting: "连接中",
+  online: "已连接",
+  error: "连接异常",
+};
+
+function renderZai(zai = {}, config = {}, enabled = true) {
+  if (!state.zaiLoaded) {
+    byId("zai-platform").value = config.platform === "intl" ? "intl" : "cn";
+    byId("zai-api-key").placeholder = config.has_api_key ? "已保存，留空表示不修改" : "请输入 Z.ai API Key";
+    state.zaiLoaded = true;
+  }
+  const configured = Boolean(zai.configured || config.configured);
+  const connected = Boolean(zai.connected);
+  const connection = byId("zai-connection");
+  connection.dataset.state = connected ? "online" : configured ? (zai.service_state === "error" ? "error" : "waiting") : "offline";
+  connection.textContent = connected ? "已连接" : configured ? (BIGMODEL_STATE_TEXT[zai.service_state] || "正在连接") : "尚未配置";
+  const available = enabled && connected && zai.five_hour_available === true;
+  const remaining = available ? Math.max(0, Math.min(100, Number(zai.five_hour_remaining_percent) || 0)) : 0;
+  byId("zai-ring").style.setProperty("--progress", `${remaining * 3.6}deg`);
+  setText("zai-five-hour-value", available ? `${remaining}%` : "--");
+  setText("zai-plan", zai.plan_level ? `${zai.plan_level} 套餐` : enabled ? "等待用量数据" : "未启用");
+  setText("zai-reset-date", available ? (zai.five_hour_reset_date || "--") : "--");
+  const weeklyAvailable = enabled && connected && zai.weekly_available === true;
+  const weeklyRemaining = weeklyAvailable ? Math.max(0, Math.min(100, Number(zai.weekly_remaining_percent) || 0)) : 0;
+  byId("zai-weekly-ring").style.setProperty("--progress", `${weeklyRemaining * 3.6}deg`);
+  setText("zai-weekly-value", weeklyAvailable ? `${weeklyRemaining}%` : "--");
+  setText("zai-weekly-plan", weeklyAvailable ? "周窗口额度" : "--");
+  byId("zai-weekly-reset").hidden = !weeklyAvailable;
+  setText("zai-weekly-reset-date", weeklyAvailable ? (zai.weekly_reset_date || "--") : "--");
+  setText("zai-source", !enabled ? "模块已关闭" : !configured ? "等待配置 API Key" : connected ? "已连接" : "等待连接");
+  setText("zai-time", zai.updated_at_epoch ? formatTime(zai.updated_at_epoch) : "尚未更新");
+  setText("zai-status", !enabled ? "未启用" : BIGMODEL_STATE_TEXT[zai.service_state] || "等待连接");
+  setText("zai-plan-level", zai.plan_level || "--");
+  setText("zai-updated", zai.updated_at_epoch ? formatTime(zai.updated_at_epoch) : "--");
+  setText("zai-nav-state", !enabled ? "已关闭" : connected ? "在线" : configured ? "连接中" : "待配置");
+}
+
+function renderZaiCheck(result, enabled = true) {
+  const button = byId("zai-check");
+  button.disabled = !enabled || state.zaiChecking;
+  const badge = byId("zai-check-badge");
+  if (state.zaiChecking) {
+    badge.dataset.state = "running";
+    badge.textContent = "检测中";
+    setText("zai-check-detail", "正在连接 Z.ai 用量接口…");
+    return;
+  }
+  if (!result) {
+    badge.dataset.state = "idle";
+    badge.textContent = "尚未检测";
+    setText("zai-check-detail", enabled ? "点击“开始检测”验证 Z.ai 数据链路。" : "启用 Z.ai 后可运行只读检测。");
+    ["network", "auth", "parse", "plan"].forEach((key) => setText(`zai-check-${key}`, "--"));
+    setText("zai-check-time", "尚未检测");
+    return;
+  }
+  badge.dataset.state = result.ok ? "ready" : "error";
+  badge.textContent = result.ok ? "正常" : "异常";
+  setText("zai-check-network", checkText(result.network?.ok));
+  setText("zai-check-auth", checkText(result.auth?.ok));
+  setText("zai-check-parse", checkText(result.parse?.ok));
+  setText("zai-check-plan", result.parse?.ok ? (result.plan_level && result.plan_level !== "--" ? result.plan_level : "已提供") : "--");
+  setText("zai-check-detail", result.detail || (result.ok ? "Z.ai 用量读取正常。" : "Z.ai 功能检测异常。"));
+  setText("zai-check-time", result.checked_at_epoch ? `检测于 ${formatTime(result.checked_at_epoch)}` : "尚未检测");
+}
+
+async function checkZai() {
+  if (state.zaiChecking) return;
+  state.zaiChecking = true;
+  renderZaiCheck(null, true);
+  try {
+    const response = await fetch("/api/v1/admin/zai/check", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "Z.ai 检测失败");
+    state.zaiCheck = result;
+    showToast(result.ok ? "Z.ai 功能运行正常" : (result.detail || "Z.ai 检测发现异常"));
+  } catch (error) {
+    state.zaiCheck = {
+      ok: false,
+      checked_at_epoch: Math.floor(Date.now() / 1000),
+      detail: error.message || "Z.ai 检测失败",
+    };
+    showToast(state.zaiCheck.detail);
+  } finally {
+    state.zaiChecking = false;
+    renderZaiCheck(state.zaiCheck, byId("zai-enabled").checked);
+  }
+}
+
+const CLAUDECODE_STATE_COLORS = {
+  working: "var(--green)", completed: "var(--green)", waiting_user: "var(--warning)",
+  failed: "var(--danger)", idle: "var(--muted)", offline: "var(--muted)",
+};
+
+function renderClaudecode(claudecode = {}, enabled = true) {
+  const online = Boolean(claudecode.connected);
+  const statusText = !enabled ? "未启用" : online ? (claudecode.status_text || "--") : "等待事件";
+  const status = byId("claudecode-status");
+  status.textContent = statusText;
+  status.style.color = online ? (CLAUDECODE_STATE_COLORS[claudecode.status] || "var(--text)") : "var(--muted)";
+  setText("claudecode-project", online ? (claudecode.project || "--") : "--");
+  setText("claudecode-session-count", online && claudecode.session_count ? `${claudecode.session_count} 个` : "--");
+  setText("claudecode-updated", claudecode.updated_at_epoch ? `更新于 ${formatTime(claudecode.updated_at_epoch)}` : "等待事件");
+  const sessions = Array.isArray(claudecode.sessions) ? claudecode.sessions : [];
+  const card = byId("claudecode-sessions-card");
+  card.hidden = !(online && sessions.length);
+  const list = byId("claudecode-session-list");
+  list.replaceChildren();
+  sessions.forEach((session) => {
+    const item = document.createElement("li");
+    const dot = document.createElement("span");
+    dot.className = "session-dot";
+    dot.style.background = CLAUDECODE_STATE_COLORS[session.status] || "var(--muted)";
+    const project = document.createElement("span");
+    project.className = "session-project";
+    project.textContent = session.project || "未知项目";
+    const stateLabel = document.createElement("span");
+    stateLabel.className = "session-state";
+    stateLabel.textContent = `${session.status_text || "--"} · ${formatTime(session.updated_at_epoch)}`;
+    item.append(dot, project, stateLabel);
+    list.append(item);
+  });
+  const connection = byId("claudecode-connection");
+  connection.dataset.state = online ? "online" : "waiting";
+  connection.textContent = online ? "已连接" : "等待事件";
+  const hooksBadge = byId("claudecode-hooks-state");
+  const hooksInstalled = Boolean(state.overview?.claudecode_hooks_installed);
+  hooksBadge.dataset.state = hooksInstalled ? "ready" : "idle";
+  hooksBadge.textContent = hooksInstalled ? "已启用上报" : "未配置";
+  setText("claudecode-nav-state", !enabled ? "已关闭" : online ? (claudecode.status_text || "在线") : "等待事件");
+
+  /* 屏上批准：远程批准开关状态 + 等待队列（Dotii 与管理页双入口）。 */
+  const permission = claudecode.permission || {};
+  const remoteToggle = byId("claudecode-remote");
+  if (remoteToggle && document.activeElement !== remoteToggle) {
+    remoteToggle.checked = permission.enabled === true;
+  }
+  const queue = Array.isArray(permission.queue) ? permission.queue : [];
+  const permCard = byId("claudecode-permission-card");
+  permCard.hidden = !(enabled && permission.enabled && queue.length);
+  if (!permCard.hidden) {
+    setText("claudecode-permission-state", `等待中 · ${queue.length} 个`);
+    const list = byId("claudecode-permission-list");
+    list.replaceChildren();
+    queue.forEach((item) => {
+      const entry = document.createElement("li");
+      const info = document.createElement("div");
+      info.className = "session-project";
+      info.textContent = `${item.project || "Claude Code"} · ${item.tool || "--"}`;
+      const remaining = Math.max(0, Math.floor((Number(item.expires_epoch) - Date.now() / 1000)));
+      const detail = document.createElement("span");
+      detail.className = "session-state";
+      detail.textContent = `${item.preview || "--"} · ${remaining} 秒`;
+      info.append(document.createElement("br"), detail);
+      const actions = document.createElement("div");
+      actions.className = "claudecode-permission-actions";
+      const approve = document.createElement("button");
+      approve.type = "button";
+      approve.className = "primary-button";
+      approve.textContent = "批准";
+      approve.addEventListener("click", () => sendClaudecodeDecision(item.id, true));
+      const deny = document.createElement("button");
+      deny.type = "button";
+      deny.className = "quiet-button";
+      deny.textContent = "拒绝";
+      deny.addEventListener("click", () => sendClaudecodeDecision(item.id, false));
+      actions.append(approve, deny);
+      entry.append(info, actions);
+      list.append(entry);
+    });
+  }
+}
+
+async function installClaudecodeHooks(action) {
+  if (state.claudecodeBusy) return;
+  state.claudecodeBusy = true;
+  byId("claudecode-hooks-install").disabled = true;
+  byId("claudecode-hooks-remove").disabled = true;
+  try {
+    if (action === "install" && !window.confirm("将在 ~/.claude/settings.json 中添加 Claude Code hooks（自动备份，可随时停用）。继续吗？")) return;
+    const response = await fetch("/api/v1/admin/claudecode/hooks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action }),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+    const changed = Array.isArray(result.changed) ? result.changed.length : 0;
+    showToast(action === "install"
+      ? changed ? `已启用事件上报（${changed} 个事件）` : "事件上报此前已启用"
+      : changed ? "已停用并清理事件上报" : "当前没有已启用的事件上报");
+    await refreshOverview();
+  } catch (error) {
+    showToast(error.message || "操作失败");
+  } finally {
+    state.claudecodeBusy = false;
+    byId("claudecode-hooks-install").disabled = false;
+    byId("claudecode-hooks-remove").disabled = false;
+  }
+}
+
+async function sendClaudecodeDecision(id, allow) {
+  try {
+    const response = await fetch("/api/v1/admin/claudecode/decision", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, allow }),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+    if (!result.resolved) throw new Error("该请求已超时或已被处理");
+    showToast(allow ? "已批准" : "已拒绝");
+  } catch (error) {
+    showToast(error.message || "决策发送失败");
+  } finally {
+    await refreshOverview();
+  }
+}
+
+async function updateClaudecodeRemote(enabled) {
+  const toggle = byId("claudecode-remote");
+  try {
+    const response = await fetch("/api/v1/admin/claudecode/remote", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled }),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "设置失败");
+    showToast(enabled ? "远程批准已开启，权限请求将推送到 Dotii" : "远程批准已关闭");
+  } catch (error) {
+    toggle.checked = !enabled;
+    showToast(error.message || "设置失败");
+  }
+}
+
+async function saveZai(event) {
+  event.preventDefault();
+  const payload = {
+    api_key: byId("zai-api-key").value,
+    platform: byId("zai-platform").value,
+  };
+  try {
+    const response = await fetch("/api/v1/admin/zai/config", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(payload)});
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+    byId("zai-api-key").value = "";
+    byId("zai-api-key").placeholder = "已保存，留空表示不修改";
+    showToast("Z.ai 配置已保存");
+    await refreshOverview();
+  } catch (error) { showToast(error.message); }
+}
+
 function setBridgeState(bridge) {
   const indicator = byId("bridge-state");
-  const collectorState = bridge.collector_state || "starting";
   const bridgeOnline = bridge.online !== false;
   indicator.dataset.state = bridgeOnline ? "online" : "error";
   setText("bridge-state-label", bridgeOnline ? "管理中心在线" : "管理中心连接失败");
-  setText("collector-detail", collectorState === "disabled" ? "Codex 模块已关闭" : collectorState === "online" ? "已连接" : collectorState === "error" ? "需要修复" : "正在连接");
   setText("bridge-uptime", formatDuration(Date.now() / 1000 - Number(bridge.started_at_epoch || 0)));
   const autoStart = byId("auto-start");
   autoStart.checked = Boolean(bridge.auto_start);
@@ -706,6 +997,68 @@ function setBridgeState(bridge) {
   setText("device-url", bridge.device_url || "--");
   setText("bridge-token", bridge.token || "--");
   setText("local-url", bridge.local_url || "--");
+}
+
+function renderCollectorStatus(snapshot, modules, bridge) {
+  const grid = byId("collector-status-grid");
+  if (!grid) return;
+  const rows = [];
+
+  const codexEnabled = modules.codex?.enabled !== false;
+  const collectorState = bridge.collector_state || "starting";
+  const codexEntry = !codexEnabled ? ["disabled", "已关闭"] :
+    collectorState === "online" ? ["online", "已连接"] :
+    collectorState === "error" ? ["error", "需要修复"] : ["waiting", "正在连接"];
+  rows.push(["Codex", codexEntry[0], null, codexEntry]);
+
+  const serviceRow = (name, enabled, data, labels) => {
+    if (!enabled) return rows.push([name, "disabled", null, ["disabled", "已关闭"]]);
+    const state = data?.service_state || "connecting";
+    const entry = labels[state] || ["waiting", "连接中"];
+    rows.push([name, entry[0], null, entry]);
+  };
+
+  serviceRow("Bambu", modules.bambu?.enabled !== false, snapshot.bambu, {
+    online: ["online", "在线"], connecting: ["waiting", "正在连接"],
+    needs_configuration: ["waiting", "待配置"], error: ["error", "连接异常"],
+  });
+  serviceRow("Z.ai", modules.zai?.enabled !== false, snapshot.zai, {
+    online: ["online", "在线"], connecting: ["waiting", "正在连接"],
+    needs_configuration: ["waiting", "待配置"], error: ["error", "连接异常"],
+  });
+
+  const claudecodeEnabled = modules.claudecode?.enabled !== false;
+  const claudecode = snapshot.claudecode || {};
+  if (!claudecodeEnabled) {
+    rows.push(["Claude Code", "disabled", null, ["disabled", "已关闭"]]);
+  } else if (claudecode.connected) {
+    rows.push(["Claude Code", "online", null, ["online", `在线 · ${claudecode.session_count || 1} 个会话`]]);
+  } else {
+    rows.push(["Claude Code", "waiting", null, ["waiting", "等待事件"]]);
+  }
+
+  const bleLink = state.overview?.ble_link;
+  if (bleLink?.enabled) {
+    rows.push(bleLink.connected
+      ? ["Dotii 蓝牙", "online", null, ["online", `推送中 · r${bleLink.revision || 0}`]]
+      : ["Dotii 蓝牙", "error", null, ["error", bleLink.last_error ? "重连中" : "连接中"]]);
+  }
+
+  grid.replaceChildren(...rows.map(([name, state,, [textState, text]]) => {
+    const item = document.createElement("div");
+    item.className = "collector-item";
+    item.dataset.state = state === "disabled" ? "" : state;
+    const dot = document.createElement("span");
+    dot.className = "collector-dot";
+    const nameLabel = document.createElement("span");
+    nameLabel.className = "collector-name";
+    nameLabel.textContent = name;
+    const stateLabel = document.createElement("span");
+    stateLabel.className = "collector-state";
+    stateLabel.textContent = text;
+    item.append(dot, nameLabel, stateLabel);
+    return item;
+  }));
 }
 
 function formatBytes(value) {
@@ -775,6 +1128,38 @@ function renderBluetooth(bluetooth = {}) {
   const status = bluetooth.device_status || {};
   const connected = bluetooth.device_connected === true;
   const recognized = devices.length > 0 || Boolean(bluetooth.last_address);
+
+  const bleLink = state.overview?.ble_link;
+  const modeSelect = byId("bluetooth-mode");
+  if (modeSelect && !state.bluetoothModeTouched) {
+    /* 默认值反映设备实际状态：扫描/连接时读到的 STATUS.mode 优先，
+       其次按 BLE 推送绑定状态推断。 */
+    const deviceMode = bluetooth.device_status?.mode;
+    modeSelect.value = deviceMode === "ble" || deviceMode === "wifi"
+      ? deviceMode
+      : (bleLink?.enabled ? "ble" : "wifi");
+  }
+  const bleMode = byId("bluetooth-mode")?.value === "ble";
+  setText("bluetooth-heading-copy", bleMode
+    ? "发现附近设备并绑定蓝牙推送，无需 Wi-Fi 环境。"
+    : "发现附近设备，并安全下发局域网与管理中心配置。");
+  const wifiHelp = byId("bluetooth-wifi-help");
+  const bleHelp = byId("bluetooth-ble-help");
+  if (wifiHelp) wifiHelp.hidden = bleMode;
+  if (bleHelp) bleHelp.hidden = !bleMode;
+
+  const linkRow = byId("ble-link-row");
+  const linkHelp = byId("ble-link-help");
+  if (linkRow) {
+    linkRow.hidden = !(bleLink?.enabled);
+    linkHelp.hidden = linkRow.hidden;
+    if (bleLink?.enabled) {
+      const paused = bleLink.paused === true;
+      setText("ble-link-state", paused ? "已暂停" : bleLink.connected ? "推送中" : "连接中");
+      const toggle = byId("ble-link-toggle");
+      toggle.textContent = paused ? "恢复" : "暂停";
+    }
+  }
   const blocked = ["denied", "bluetooth_off", "unavailable"].includes(bluetooth.permission_state);
   const badge = byId("bluetooth-badge");
   badge.dataset.state = running ? "running" : blocked || !available || !ready ? "error" : "ready";
@@ -830,8 +1215,9 @@ function renderBluetooth(bluetooth = {}) {
   byId("bluetooth-install").hidden = ready || !available;
   byId("bluetooth-install").disabled = running;
   byId("bluetooth-scan").disabled = running || !available || !ready;
-  byId("bluetooth-configure").disabled = running || !available || !ready || !input.value || !byId("bluetooth-ssid").value.trim();
-  byId("bluetooth-configure").textContent = running ? "正在连接…" : "保存并连接";
+  const wifiNeeded = !bleMode && !byId("bluetooth-ssid").value.trim();
+  byId("bluetooth-configure").disabled = running || !available || !ready || !input.value || wifiNeeded;
+  byId("bluetooth-configure").textContent = running ? "正在连接…" : bleMode ? "绑定并开始推送" : "保存并连接";
 }
 
 function customFormValue() {
@@ -1050,6 +1436,7 @@ function renderCodexTaskSwitcher(tasks) {
 function renderOverview(overview) {
   state.overview = overview;
   if (!state.codexChecking && overview.codex_check) state.codexCheck = overview.codex_check;
+  if (!state.zaiChecking && overview.zai_check) state.zaiCheck = overview.zai_check;
   const snapshot = overview.snapshot || {};
   const codex = snapshot.codex || {};
   const tasks = Array.isArray(codex.tasks) && codex.tasks.length ? codex.tasks : [codex.task || {}];
@@ -1060,8 +1447,11 @@ function renderOverview(overview) {
   }
   const bridge = overview.bridge || {};
   const modules = Object.fromEntries((overview.modules || []).map((module) => [module.id, module]));
+  renderCollectorStatus(snapshot, modules, bridge);
   const codexEnabled = modules.codex?.enabled !== false;
   const bambuEnabled = modules.bambu?.enabled !== false;
+  const zaiEnabled = modules.zai?.enabled !== false;
+  const claudecodeEnabled = modules.claudecode?.enabled !== false;
   const dotiiEnabled = modules.dotii?.enabled !== false;
   const weeklyAvailable = codex.weekly_available !== false;
   const weekly = weeklyAvailable ? Math.max(0, Math.min(100, Number(codex.weekly_remaining_percent) || 0)) : 0;
@@ -1090,11 +1480,18 @@ function renderOverview(overview) {
   renderCodexTaskSwitcher(tasks);
   if (!state.moduleSaving.codex) byId("codex-enabled").checked = codexEnabled;
   if (!state.moduleSaving.bambu) byId("bambu-enabled").checked = bambuEnabled;
+  if (!state.moduleSaving.zai) byId("zai-enabled").checked = zaiEnabled;
+  if (!state.moduleSaving.claudecode) byId("claudecode-enabled").checked = claudecodeEnabled;
   byId("codex-content").hidden = !codexEnabled;
   renderCodexCheck(state.codexCheck, codexEnabled, bridge);
   byId("bambu-content").hidden = !bambuEnabled;
+  byId("zai-content").hidden = !zaiEnabled;
+  byId("claudecode-content").hidden = !claudecodeEnabled;
   setText("codex-nav-state", codexEnabled ? (bridge.collector_state === "online" ? "在线" : bridge.collector_state === "error" ? "异常" : "连接中") : "已关闭");
   renderBambu(snapshot.bambu || {}, overview.bambu_config || {}, bambuEnabled);
+  renderZai(snapshot.zai || {}, overview.zai_config || {}, zaiEnabled);
+  renderZaiCheck(state.zaiCheck, zaiEnabled);
+  renderClaudecode(snapshot.claudecode || {}, claudecodeEnabled);
   const incomingDotiiConfig = overview.dotii_config;
   if (!state.dotiiConfigDirty && !state.dotiiConfigSaving && incomingDotiiConfig
       && (!state.dotiiConfig || state.dotiiConfig.revision !== incomingDotiiConfig.revision)) {
@@ -1428,15 +1825,17 @@ async function scanBluetooth() {
 
 async function configureBluetooth() {
   const address = byId("bluetooth-device").value;
+  const mode = byId("bluetooth-mode").value;
   const ssid = byId("bluetooth-ssid").value.trim();
   const password = byId("bluetooth-password").value;
-  if (!address || !ssid) return showToast("请选择 Dotii 并填写 Wi-Fi 名称");
+  if (!address) return showToast("请选择 Dotii");
+  if (mode !== "ble" && !ssid) return showToast("请填写 Wi-Fi 名称");
   try {
     await bluetoothAction("/api/v1/admin/bluetooth/configure", {
-      address, ssid, password,
+      address, ssid, password, mode,
     });
     byId("bluetooth-password").value = "";
-    showToast("正在通过蓝牙配置 Dotii");
+    showToast(mode === "ble" ? "正在绑定蓝牙模式 Dotii" : "正在通过蓝牙配置 Dotii");
     await refreshOverview();
   } catch (error) { showToast(error.message || "蓝牙配置失败"); }
 }
@@ -1775,6 +2174,13 @@ byId("codex-enabled").addEventListener("change", (event) => updateModule("codex"
 byId("codex-ui").addEventListener("change", (event) => saveCodexUi(event.target.value));
 byId("codex-check").addEventListener("click", checkCodex);
 byId("bambu-enabled").addEventListener("change", (event) => updateModule("bambu", event.target.checked));
+byId("zai-enabled").addEventListener("change", (event) => updateModule("zai", event.target.checked));
+byId("zai-form").addEventListener("submit", saveZai);
+byId("zai-check").addEventListener("click", checkZai);
+byId("claudecode-enabled").addEventListener("change", (event) => updateModule("claudecode", event.target.checked));
+byId("claudecode-hooks-install").addEventListener("click", () => installClaudecodeHooks("install"));
+byId("claudecode-hooks-remove").addEventListener("click", () => installClaudecodeHooks("remove"));
+byId("claudecode-remote").addEventListener("change", (event) => updateClaudecodeRemote(event.target.checked));
 byId("dotii-enabled").addEventListener("change", (event) => updateModule("dotii", event.target.checked));
 byId("dotii-config-form").addEventListener("submit", saveDotiiConfig);
 byId("dotii-follow-live").addEventListener("click", () => {
@@ -1795,6 +2201,28 @@ byId("bluetooth-install").addEventListener("click", installBluetooth);
 byId("bluetooth-scan").addEventListener("click", scanBluetooth);
 byId("bluetooth-configure").addEventListener("click", configureBluetooth);
 byId("bluetooth-ssid").addEventListener("input", () => renderBluetooth(state.overview?.bluetooth || {}));
+byId("ble-link-toggle").addEventListener("click", async () => {
+  const paused = state.overview?.ble_link?.paused === true;
+  try {
+    const response = await fetch("/api/v1/admin/ble-link", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: paused ? "resume" : "pause" }),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+    showToast(paused ? "蓝牙推送已恢复" : "蓝牙推送已暂停");
+    await refreshOverview();
+  } catch (error) { showToast(error.message || "操作失败"); }
+});
+byId("bluetooth-mode").addEventListener("change", () => {
+  state.bluetoothModeTouched = true;
+  const bleMode = byId("bluetooth-mode").value === "ble";
+  byId("bluetooth-ssid-row").hidden = bleMode;
+  byId("bluetooth-password-row").hidden = bleMode;
+  byId("bluetooth-network-note").hidden = bleMode;
+  renderBluetooth(state.overview?.bluetooth || {});
+});
 byId("firmware-refresh").addEventListener("click", refreshFirmware);
 byId("firmware-flash").addEventListener("click", flashFirmware);
 byId("custom-form").addEventListener("submit", saveCustom);

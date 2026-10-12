@@ -12,10 +12,13 @@ sys.path.insert(0, str(BRIDGE))
 
 from codex_bridge import (  # noqa: E402
     CODEX_CLI_PACKAGE,
+    ClaudeCodeConfigStore,
+    default_claudecode_config,
     default_dotii_config,
     dotii_state,
     packaged_startup_command,
     startup_command,
+    validate_claudecode_config,
     validate_display_config,
     validate_dotii_config,
     validate_module_config,
@@ -28,9 +31,53 @@ class CodexUiConfigTests(unittest.TestCase):
     def test_codex_cli_package_is_pinned(self) -> None:
         self.assertEqual(CODEX_CLI_PACKAGE, "@openai/codex@0.151.0")
 
+    def test_claudecode_config_defaults_off_and_persists_toggle(self) -> None:
+        self.assertEqual(default_claudecode_config(), {"remote_approve_enabled": False})
+        with tempfile.TemporaryDirectory(dir=BRIDGE.parent / ".codx") as temporary:
+            store = ClaudeCodeConfigStore(Path(temporary) / "claudecode.json")
+            self.assertFalse(store.read()["remote_approve_enabled"])
+            store.write({"remote_approve_enabled": True})
+            self.assertTrue(ClaudeCodeConfigStore(Path(temporary) / "claudecode.json").read()
+                            ["remote_approve_enabled"])
+        with self.assertRaises(ValueError):
+            validate_claudecode_config({"remote_approve_enabled": "yes"})
+
+    def test_dotii_state_promotes_pending_permission_to_waiting(self) -> None:
+        waiting = dotii_state(
+            {"codex": {"task": {"status": "idle"}}},
+            {},
+            True,
+            default_dotii_config(),
+            claudecode={"connected": True, "status": "idle",
+                        "permission": {"pending": {"id": "a1b2c3", "tool": "Bash"}}},
+        )
+        self.assertEqual(waiting["state"], "claudecode_waiting_user")
+        self.assertIn("批准", waiting["reason"])
+
+        settled = dotii_state(
+            {"codex": {"task": {"status": "idle"}}},
+            {},
+            True,
+            default_dotii_config(),
+            claudecode={"connected": True, "status": "idle", "permission": {"pending": None}},
+        )
+        self.assertEqual(settled["state"], "idle")
+
+    def test_pending_permission_outranks_codex_working_and_bambu_printing(self) -> None:
+        """权限请求有时限且需设备操作，不得被 Codex/Bambu 常态掩埋。"""
+        state = dotii_state(
+            {"codex": {"task": {"status": "working"}}},
+            {"configured": True, "connected": True, "status": "printing"},
+            True,
+            default_dotii_config(),
+            claudecode={"connected": True, "status": "idle",
+                        "permission": {"pending": {"id": "x", "tool": "Bash"}}},
+        )
+        self.assertEqual(state["state"], "claudecode_waiting_user")
+
     def test_module_config_migrates_dotii_as_enabled(self) -> None:
         modules = validate_module_config({"codex": True, "bambu": False})
-        self.assertEqual(modules, {"codex": True, "bambu": False, "dotii": True})
+        self.assertEqual(modules, {"codex": True, "bambu": False, "zai": False, "claudecode": False, "dotii": True})
 
     def test_dotii_state_prioritizes_failure_then_active_work(self) -> None:
         failed = dotii_state(
@@ -65,6 +112,70 @@ class CodexUiConfigTests(unittest.TestCase):
         )
         self.assertEqual(state["expression"], "complete")
 
+    def test_return_to_dotii_flag_validates_and_flows_to_state(self) -> None:
+        base = default_dotii_config()
+        base["return_to_dotii"] = True
+        config = validate_dotii_config(base)
+        self.assertTrue(config["return_to_dotii"])
+        self.assertFalse(validate_dotii_config(default_dotii_config())["return_to_dotii"])
+        broken = default_dotii_config()
+        broken["return_to_dotii"] = "yes"
+        with self.assertRaises(ValueError):
+            validate_dotii_config(broken)
+        state = dotii_state({"codex": {"task": {"status": "idle"}}}, {}, True, config)
+        self.assertTrue(state["return_to_dotii"])
+
+    def test_dotii_state_covers_claudecode_working(self) -> None:
+        state = dotii_state(
+            {"codex": {"task": {"status": "idle"}}},
+            {},
+            True,
+            default_dotii_config(),
+            claudecode={"connected": True, "status": "working"},
+        )
+        self.assertEqual(state["state"], "claudecode_working")
+        self.assertEqual(state["expression"], "working")
+
+    def test_dotii_state_ignores_seeded_codex_when_module_disabled(self) -> None:
+        """模块关闭时 state.json 里的预览任务不得遮蔽实时模块的状态。"""
+        snapshot = {"modules": {"codex": False},
+                    "codex": {"task": {"status": "working", "preview_data": True}}}
+        state = dotii_state(
+            snapshot, {}, True, default_dotii_config(),
+            claudecode={"connected": True, "status": "completed"},
+        )
+        self.assertEqual(state["state"], "claudecode_completed")
+        self.assertEqual(state["expression"], "complete")
+
+        state = dotii_state(snapshot, {}, True, default_dotii_config(),
+                            claudecode={"connected": True, "status": "working"})
+        self.assertEqual(state["state"], "claudecode_working")
+
+        # 全部模块关闭时回到空闲，而不是 connecting（Codex 关闭不是链路断开）
+        state = dotii_state(snapshot, {}, True, default_dotii_config(),
+                            claudecode={"connected": False})
+        self.assertEqual(state["state"], "idle")
+
+    def test_dotii_state_ignores_claudecode_when_offline(self) -> None:
+        state = dotii_state(
+            {"codex": {"task": {"status": "idle"}}},
+            {},
+            True,
+            default_dotii_config(),
+            claudecode={"connected": False, "status": "working"},
+        )
+        self.assertEqual(state["state"], "idle")
+
+    def test_dotii_state_claudecode_failure_outranks_bambu_fault(self) -> None:
+        state = dotii_state(
+            {"codex": {"task": {"status": "idle"}}},
+            {"configured": True, "connected": True, "status": "fault"},
+            True,
+            default_dotii_config(),
+            claudecode={"connected": True, "status": "failed"},
+        )
+        self.assertEqual(state["state"], "claudecode_failure")
+
     def test_dotii_config_allows_one_animation_to_cover_multiple_states(self) -> None:
         config = default_dotii_config()
         config["animations"]["curious"]["states"].remove("codex_waiting_user")
@@ -79,7 +190,7 @@ class CodexUiConfigTests(unittest.TestCase):
         self.assertFalse(state["state_hold"])
         self.assertEqual(
             validated["animations"]["working"]["states"],
-            ["codex_working", "bambu_printing", "codex_waiting_user"],
+            ["codex_working", "claudecode_working", "bambu_printing", "codex_waiting_user"],
         )
 
     def test_dotii_config_rejects_duplicate_business_states(self) -> None:
@@ -178,7 +289,7 @@ class CodexUiConfigTests(unittest.TestCase):
         self.assertIn("codex_working", migrated["animations"]["working"]["states"])
         self.assertEqual(migrated["animations"]["working"]["state_duration_ms"], 0)
         self.assertEqual(len(migrated["fixed_states"]), 5)
-        self.assertEqual([group["id"] for group in migrated["state_groups"]], ["codex", "bambu"])
+        self.assertEqual([group["id"] for group in migrated["state_groups"]], ["codex", "claudecode", "bambu"])
 
     def test_dotii_state_distinguishes_codex_working_from_bambu_printing(self) -> None:
         config = default_dotii_config()

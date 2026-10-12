@@ -40,8 +40,9 @@ LV_FONT_DECLARE(ui_font_fixed_20);
 #define COLOR_GREEN 0x42D98C
 #define COLOR_BAMBU 0x00AE42
 #define COLOR_WARNING 0xF2C66D
+#define COLOR_VIOLET 0x9D7BFF
 #define COLOR_DANGER 0xFF766F
-#define PAGE_COUNT 4
+#define PAGE_COUNT 6
 #define TITLE_HEIGHT 30
 #define DISPLAY_ANGLE_DEFAULT_TENTHS 840
 #define DISPLAY_ANGLE_MIN_TENTHS 800
@@ -66,6 +67,8 @@ static lv_obj_t *s_plus_status_pill;
 static lv_obj_t *s_detail;
 static lv_obj_t *s_bambu_main;
 static lv_obj_t *s_bambu_detail;
+static lv_obj_t *s_zai_main;
+static lv_obj_t *s_claudecode_main;
 static lv_obj_t *s_custom;
 static lv_obj_t *s_dotii;
 static lv_obj_t *s_control;
@@ -103,6 +106,34 @@ static lv_obj_t *s_bambu_pause;
 static lv_obj_t *s_bambu_pause_icon;
 static lv_obj_t *s_bambu_stop;
 static lv_obj_t *s_bambu_stop_progress;
+static lv_obj_t *s_time_zai_main;
+static lv_obj_t *s_zai_arc;
+static lv_obj_t *s_zai_weekly_arc;
+static lv_obj_t *s_zai_percent;
+static lv_obj_t *s_zai_weekly_percent;
+static lv_obj_t *s_zai_plan;
+static lv_obj_t *s_zai_plan_pill;
+static lv_obj_t *s_zai_reset;
+static lv_obj_t *s_zai_weekly_reset;
+static lv_obj_t *s_time_claudecode_main;
+static lv_obj_t *s_claudecode_status_label;
+static lv_obj_t *s_claudecode_detail;
+static lv_obj_t *s_claudecode_detail_dots[CLAUDECODE_SESSION_MAX];
+static lv_obj_t *s_claudecode_detail_projects[CLAUDECODE_SESSION_MAX];
+static lv_obj_t *s_claudecode_detail_states[CLAUDECODE_SESSION_MAX];
+static lv_obj_t *s_claudecode_detail_times[CLAUDECODE_SESSION_MAX];
+static lv_obj_t *s_claudecode_pill;
+static lv_obj_t *s_claudecode_pill_label;
+static lv_obj_t *s_claudecode_sessions;
+static lv_obj_t *s_claudecode_activity;
+/* 表情确认页：权限请求出现时 Dotii 抬起好奇表情等你在屏上批准。 */
+static lv_obj_t *s_claudecode_confirm;
+static lv_obj_t *s_confirm_left_eye;
+static lv_obj_t *s_confirm_right_eye;
+static lv_obj_t *s_confirm_mouth;
+static lv_obj_t *s_confirm_title;
+static lv_obj_t *s_confirm_preview;
+static lv_obj_t *s_confirm_countdown;
 static lv_obj_t *s_detail_title;
 static lv_obj_t *s_detail_meta;
 static lv_obj_t *s_user_message;
@@ -113,6 +144,9 @@ static lv_obj_t *s_detail_chat;
 static lv_obj_t *s_settings_list;
 static lv_obj_t *s_detail_footer;
 static lv_obj_t *s_battery_label;
+static lv_obj_t *s_quick_row;
+static lv_obj_t *s_control_link_icon;
+static lv_obj_t *s_control_link_text;
 static lv_obj_t *s_settings_wifi;
 static lv_obj_t *s_settings_ip;
 static lv_obj_t *s_settings_bridge;
@@ -128,11 +162,24 @@ static lv_obj_t *s_custom_footer;
 static lv_obj_t *s_dotii_left_eye;
 static lv_obj_t *s_dotii_right_eye;
 static lv_obj_t *s_dotii_mouth;
+static lv_obj_t *s_dotii_connecting_label;
+/* 开机动画屏：黑屏 → 睁眼 → 微笑，播完进等待屏（Dotii connecting 表情）。 */
+static lv_obj_t *s_boot;
+static lv_obj_t *s_boot_left_eye;
+static lv_obj_t *s_boot_right_eye;
+static lv_obj_t *s_boot_mouth;
+static lv_timer_t *s_boot_timer;
+static uint32_t s_boot_started;
+static uint32_t s_wait_baseline_activity;
+/* 权限确认页自动切页被转场 pending 挡住时的待切标志（ui_timer 每秒重试）。 */
+static bool s_perm_switch_pending;
 static lv_obj_t *s_dotii_accent_left;
 static lv_obj_t *s_dotii_accent_right;
 static lv_obj_t *s_dotii_accent_center;
 static lv_obj_t *s_codex_quick;
 static lv_obj_t *s_bambu_quick;
+static lv_obj_t *s_zai_quick;
+static lv_obj_t *s_claudecode_quick;
 static lv_obj_t *s_custom_quick;
 static lv_obj_t *s_dotii_quick;
 static lv_obj_t *s_page_dots[PAGE_COUNT][PAGE_COUNT];
@@ -407,8 +454,31 @@ static void return_from_current(void)
 {
     if (s_current == s_detail) load_screen(enabled_return_screen(page_screen(0)), false);
     else if (s_current == s_bambu_detail) load_screen(enabled_return_screen(s_bambu_main), false);
+    else if (s_current == s_claudecode_detail) load_screen(enabled_return_screen(s_claudecode_main), false);
+    else if (s_current == s_claudecode_confirm) load_screen(enabled_return_screen(s_dotii), false);
     else if (s_current == s_settings) load_screen(first_enabled_screen(), false);
     else if (s_current == s_power) load_screen(enabled_return_screen(s_before_power), false);
+}
+
+static int main_page_index(lv_obj_t *screen);
+static void goto_page(int delta);
+
+/* 滑动抬手时 LVGL 仍会派发 CLICKED（页面不可滚动，滑动不产生 scroll 状态）。
+   记录最近一次手势时间，其后的短暂点击视为滑动的一部分忽略。 */
+static uint32_t s_last_gesture_at = 0;
+
+static void detail_clicked(lv_event_t *event)
+{
+    if (!s_screen_on || s_screen_saver_active) return;
+    if (s_last_gesture_at != 0 && lv_tick_elaps(s_last_gesture_at) < 350) return;
+    lv_obj_t *target = (lv_obj_t *)lv_event_get_user_data(event);
+    if (target == NULL) return;
+    if (target == s_detail) {
+        s_detail_task_index = 0;
+        s_detail_thread_id[0] = '\0';
+        render_codex_detail();
+    }
+    load_screen(target, true);
 }
 
 static void swipe_event(lv_event_t *event)
@@ -417,6 +487,7 @@ static void swipe_event(lv_event_t *event)
     if (s_wake_touch_in_progress) return;
     lv_indev_t *input = lv_indev_active();
     if (input == NULL) return;
+    s_last_gesture_at = lv_tick_get();
 
     lv_dir_t direction = lv_indev_get_gesture_dir(input);
     if (s_current == s_control && direction == LV_DIR_TOP) {
@@ -429,11 +500,6 @@ static void swipe_event(lv_event_t *event)
         /* One upward swipe advances one viewport step. */
     } else if (direction == LV_DIR_BOTTOM && page_scroll_current(false)) {
         /* One downward swipe returns one viewport step. */
-    } else if ((s_current == s_main || s_current == s_plus_main) && direction == LV_DIR_LEFT) {
-        s_detail_task_index = 0;
-        s_detail_thread_id[0] = '\0';
-        render_codex_detail();
-        load_screen(s_detail, true);
     } else if (s_current == s_detail && direction == LV_DIR_LEFT) {
         if (s_detail_task_index + 1 < s_detail_task_count) {
             bsp_display_transform_set_next_sweep(BSP_DISPLAY_SWEEP_LEFT);
@@ -450,8 +516,11 @@ static void swipe_event(lv_event_t *event)
         } else {
             return_from_current();
         }
-    } else if (s_current == s_bambu_main && direction == LV_DIR_LEFT) {
-        load_screen(s_bambu_detail, true);
+    } else if (main_page_index(s_current) >= 0 && direction == LV_DIR_LEFT) {
+        /* 主页面层：左滑下一页、右滑上一页（详情进入走点按）。 */
+        goto_page(1);
+    } else if (main_page_index(s_current) >= 0 && direction == LV_DIR_RIGHT) {
+        goto_page(-1);
     } else if (direction == LV_DIR_RIGHT) {
         return_from_current();
     }
@@ -769,10 +838,14 @@ static void make_reset_metric(lv_obj_t *parent, int x)
 
 static bool page_enabled(uint8_t page)
 {
-    if (!s_snapshot.valid) return page < 2;
+    /* 无任何快照时只剩 Dotii 等待屏（等待真实数据），数据页不强制显示——
+       页面结构由快照 modules 驱动，等数据到了自然恢复。 */
+    if (!s_snapshot.valid) return page == 5;
     if (page == 0) return s_snapshot.codex_enabled;
     if (page == 1) return s_snapshot.bambu_enabled;
-    if (page == 2) return s_snapshot.custom_enabled;
+    if (page == 2) return s_snapshot.zai_enabled;
+    if (page == 3) return s_snapshot.claudecode_enabled;
+    if (page == 4) return s_snapshot.custom_enabled;
     return s_snapshot.dotii_enabled;
 }
 
@@ -780,7 +853,9 @@ static lv_obj_t *page_screen(uint8_t page)
 {
     if (page == 0) return s_snapshot.codex_ui_dual_limit ? s_plus_main : s_main;
     if (page == 1) return s_bambu_main;
-    if (page == 2) return s_custom;
+    if (page == 2) return s_zai_main;
+    if (page == 3) return s_claudecode_main;
+    if (page == 4) return s_custom;
     return s_dotii;
 }
 
@@ -796,8 +871,10 @@ static bool screen_enabled(lv_obj_t *screen)
 {
     if (screen == s_main || screen == s_plus_main || screen == s_detail) return page_enabled(0);
     if (screen == s_bambu_main || screen == s_bambu_detail) return page_enabled(1);
-    if (screen == s_custom) return page_enabled(2);
-    if (screen == s_dotii) return page_enabled(3);
+    if (screen == s_zai_main) return page_enabled(2);
+    if (screen == s_claudecode_main || screen == s_claudecode_detail) return page_enabled(3);
+    if (screen == s_custom) return page_enabled(4);
+    if (screen == s_dotii) return page_enabled(5);
     return true;
 }
 
@@ -809,7 +886,7 @@ static lv_obj_t *enabled_return_screen(lv_obj_t *screen)
 
 static void update_page_dots(void)
 {
-    static const uint32_t active_colors[PAGE_COUNT] = {COLOR_BLUE, COLOR_BAMBU, COLOR_WARNING, COLOR_CYAN};
+    static const uint32_t active_colors[PAGE_COUNT] = {COLOR_BLUE, COLOR_BAMBU, COLOR_VIOLET, COLOR_ORANGE, COLOR_WARNING, COLOR_CYAN};
     for (uint8_t row = 0; row < PAGE_COUNT; ++row) {
         int total_width = 0;
         uint8_t count = 0;
@@ -870,7 +947,7 @@ static void build_main(void)
     lv_obj_set_size(s_main_arc, SCREEN_SIZE, SCREEN_SIZE);
     lv_obj_center(s_main_arc);
     lv_arc_set_range(s_main_arc, 0, 100);
-    lv_arc_set_value(s_main_arc, 68);
+    lv_arc_set_value(s_main_arc, 0);
     lv_arc_set_bg_angles(s_main_arc, 140, 400);
     lv_obj_set_style_arc_width(s_main_arc, 26, LV_PART_MAIN);
     lv_obj_set_style_arc_color(s_main_arc, color(0x232928), LV_PART_MAIN);
@@ -886,7 +963,7 @@ static void build_main(void)
 
     lv_obj_t *kicker = make_label(s_main_content, "周剩余", &ui_font_chinese_semibold_24, COLOR_MUTED);
     lv_obj_align(kicker, LV_ALIGN_CENTER, 0, -82);
-    s_percent = make_label(s_main_content, "68%", &ui_font_digits_64, COLOR_TEXT);
+    s_percent = make_label(s_main_content, "--", &ui_font_digits_64, COLOR_TEXT);
     lv_obj_set_style_transform_scale(s_percent, 282, 0);
     lv_obj_align(s_percent, LV_ALIGN_CENTER, 0, -19);
 
@@ -910,7 +987,7 @@ static void build_main(void)
     lv_obj_set_style_radius(s_status_dot, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_color(s_status_dot, color(COLOR_GREEN), 0);
     lv_obj_set_style_bg_opa(s_status_dot, LV_OPA_COVER, 0);
-    s_status = make_label(s_status_pill, "工作中", &s_ui_font, COLOR_GREEN);
+    s_status = make_label(s_status_pill, "离线", &s_ui_font, COLOR_MUTED);
     lv_obj_set_size(s_status, 82, 22);
     lv_obj_set_style_text_align(s_status, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_transform_scale(s_status, 282, 0);
@@ -957,7 +1034,7 @@ static lv_obj_t *make_usage_arc(lv_obj_t *parent, int32_t start_angle,
     return arc;
 }
 
-static void make_five_hour_title(lv_obj_t *parent, int32_t y)
+static void make_five_hour_title(lv_obj_t *parent, int32_t y, uint32_t accent)
 {
     lv_obj_t *row = lv_obj_create(parent);
     lv_obj_remove_style_all(row);
@@ -971,11 +1048,11 @@ static void make_five_hour_title(lv_obj_t *parent, int32_t y)
     lv_obj_remove_flag(row, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_align(row, LV_ALIGN_TOP_MID, 0, y);
 
-    make_label(row, "5H", &lv_font_montserrat_22, COLOR_ORANGE);
+    make_label(row, "5H", &lv_font_montserrat_22, accent);
     lv_obj_t *title_gap = lv_obj_create(row);
     lv_obj_remove_style_all(title_gap);
     lv_obj_set_size(title_gap, 2, 1);
-    make_label(row, "剩余", &ui_font_chinese_semibold_24, COLOR_ORANGE);
+    make_label(row, "剩余", &ui_font_chinese_semibold_24, accent);
 }
 
 static lv_obj_t *make_usage_reset_row(lv_obj_t *parent, int32_t y,
@@ -1016,7 +1093,7 @@ static void build_plus_main(void)
      * falls, its right endpoint retreats from right to left. */
     lv_arc_set_mode(s_plus_weekly_arc, LV_ARC_MODE_REVERSE);
 
-    make_five_hour_title(s_plus_main, 64);
+    make_five_hour_title(s_plus_main, 64, COLOR_ORANGE);
     s_plus_five_percent = make_label(s_plus_main, "--", &ui_font_digits_64, COLOR_TEXT);
     lv_obj_set_style_transform_scale(s_plus_five_percent, 260, 0);
     lv_obj_align(s_plus_five_percent, LV_ALIGN_TOP_MID, 0, 104);
@@ -1070,7 +1147,7 @@ static void build_plus_main(void)
     lv_obj_remove_style_all(status_right_gap);
     lv_obj_set_size(status_right_gap, 12, 1);
 
-    s_plus_status = make_label(status_content, "工作中", &s_ui_font, COLOR_GREEN);
+    s_plus_status = make_label(status_content, "离线", &s_ui_font, COLOR_MUTED);
     lv_obj_set_height(s_plus_status, 26);
     lv_obj_set_style_text_align(s_plus_status, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_transform_scale(s_plus_status, 310, 0);
@@ -1355,12 +1432,33 @@ static void build_detail(void)
     lv_obj_set_style_pad_top(s_detail_footer, 2, 0);
     lv_obj_align(s_detail_footer, LV_ALIGN_BOTTOM_MID, 0, -14);
     register_page_scroll_target(s_detail, s_detail_chat);
+
+    /* 点按 Codex 主页进入任务详情（左右滑动已分配给翻页）。 */
+    lv_obj_add_event_cb(s_main, detail_clicked, LV_EVENT_CLICKED, s_detail);
+    lv_obj_add_event_cb(s_plus_main, detail_clicked, LV_EVENT_CLICKED, s_detail);
 }
 
 static void bambu_pause_event(lv_event_t *event)
 {
     if (lv_event_get_code(event) != LV_EVENT_CLICKED) return;
     connectivity_bambu_command(s_snapshot.bambu_status == BAMBU_STATUS_PAUSED ? "resume" : "pause");
+}
+
+/* 屏上批准/拒绝 Claude Code 权限请求：Wi-Fi 走命令队列，BLE 走 SYNC notify
+   （connectivity_claudecode_decision 内部分流）。350ms 手势守卫防滑动误触。
+   决策发出后立即回表情页——pending 清空要等下一份快照（BLE 2s/Wi-Fi 5s），
+   本地先行切走给出即时反馈；若队列还有下一条，其 id 边沿会再次切入确认页。 */
+static void claudecode_decision_event(lv_event_t *event)
+{
+    if (lv_event_get_code(event) != LV_EVENT_CLICKED) return;
+    if (s_last_gesture_at != 0 && lv_tick_elaps(s_last_gesture_at) < 350) return;
+    bool allow = lv_event_get_user_data(event) != NULL;
+    /* 上行失败（未连接/队列满）时留在确认页，用户可重试或右滑离开；
+       静默切走会让"点了批准"实际没送达。 */
+    if (!connectivity_claudecode_decision(s_snapshot.claudecode_perm_id, allow)) {
+        return;
+    }
+    if (s_current == s_claudecode_confirm) load_screen(s_dotii, true);
 }
 
 static void bambu_stop_anim_done(lv_anim_t *animation)
@@ -1561,6 +1659,225 @@ static void build_bambu(void)
     lv_obj_center(stop_icon);
     lv_obj_move_foreground(stop_icon);
     lv_obj_add_event_cb(s_bambu_stop, bambu_stop_event, LV_EVENT_ALL, NULL);
+
+    /* 点按主页进入打印详情（左右滑动已分配给翻页）。 */
+    lv_obj_add_event_cb(s_bambu_main, detail_clicked, LV_EVENT_CLICKED, s_bambu_detail);
+}
+
+static void build_zai(void)
+{
+    s_zai_main = lv_obj_create(NULL);
+    set_screen_background(s_zai_main);
+    add_activity_event(s_zai_main);
+    lv_obj_add_event_cb(s_zai_main, swipe_event, LV_EVENT_GESTURE, NULL);
+    lv_obj_t *content = lv_obj_create(s_zai_main);
+    lv_obj_remove_style_all(content);
+    lv_obj_set_size(content, SCREEN_SIZE, SCREEN_SIZE);
+    lv_obj_center(content);
+    lv_obj_remove_flag(content, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(content, LV_OBJ_FLAG_CLICKABLE);
+
+    /* Same split-ring geometry as the Codex dual-limit page: violet 5-hour
+     * arc across the top, blue weekly arc anchored at its left endpoint. */
+    s_zai_arc = make_usage_arc(content, 188, 352, COLOR_VIOLET);
+    s_zai_weekly_arc = make_usage_arc(content, 8, 172, COLOR_BLUE_USAGE);
+    lv_arc_set_mode(s_zai_weekly_arc, LV_ARC_MODE_REVERSE);
+
+    make_five_hour_title(content, 64, COLOR_VIOLET);
+    s_zai_percent = make_label(content, "--", &ui_font_digits_64, COLOR_TEXT);
+    lv_obj_set_style_transform_scale(s_zai_percent, 260, 0);
+    lv_obj_align(s_zai_percent, LV_ALIGN_TOP_MID, 0, 104);
+    s_zai_reset = make_usage_reset_row(content, 166, NULL);
+
+    s_zai_plan_pill = lv_obj_create(content);
+    lv_obj_set_size(s_zai_plan_pill, 224, 48);
+    lv_obj_align(s_zai_plan_pill, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_set_style_radius(s_zai_plan_pill, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(s_zai_plan_pill, color(0x1D1735), 0);
+    lv_obj_set_style_bg_opa(s_zai_plan_pill, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(s_zai_plan_pill, 0, 0);
+    lv_obj_set_style_pad_all(s_zai_plan_pill, 0, 0);
+    lv_obj_remove_flag(s_zai_plan_pill, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(s_zai_plan_pill, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_t *plan_content = lv_obj_create(s_zai_plan_pill);
+    lv_obj_remove_style_all(plan_content);
+    lv_obj_set_size(plan_content, 210, 40);
+    lv_obj_align(plan_content, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_set_style_pad_all(plan_content, 0, 0);
+    lv_obj_set_style_pad_column(plan_content, 0, 0);
+    lv_obj_set_layout(plan_content, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(plan_content, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(plan_content, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    s_time_zai_main = make_label(plan_content, "--:--", &s_ui_font, COLOR_TEXT);
+    lv_obj_set_height(s_time_zai_main, 26);
+    lv_obj_set_style_text_align(s_time_zai_main, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_transform_scale(s_time_zai_main, 310, 0);
+    lv_obj_set_style_text_outline_stroke_color(s_time_zai_main, color(COLOR_TEXT), 0);
+    lv_obj_set_style_text_outline_stroke_width(s_time_zai_main, 2, 0);
+    lv_obj_set_style_text_outline_stroke_opa(s_time_zai_main, LV_OPA_COVER, 0);
+    lv_obj_t *plan_gap = lv_obj_create(plan_content);
+    lv_obj_remove_style_all(plan_gap);
+    lv_obj_set_size(plan_gap, 10, 1);
+    lv_obj_t *plan_separator = make_label(plan_content, "·", &s_ui_font, COLOR_MUTED);
+    lv_obj_set_height(plan_separator, 30);
+    lv_obj_set_style_text_align(plan_separator, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_transform_scale(plan_separator, 460, 0);
+    lv_obj_set_style_translate_y(plan_separator, -4, 0);
+    lv_obj_t *plan_gap2 = lv_obj_create(plan_content);
+    lv_obj_remove_style_all(plan_gap2);
+    lv_obj_set_size(plan_gap2, 12, 1);
+    s_zai_plan = make_label(plan_content, "--", &ui_font_detail_20, COLOR_VIOLET);
+    lv_obj_set_height(s_zai_plan, 26);
+    lv_obj_set_style_text_align(s_zai_plan, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_outline_stroke_color(s_zai_plan, color(COLOR_VIOLET), 0);
+    lv_obj_set_style_text_outline_stroke_width(s_zai_plan, 2, 0);
+    lv_obj_set_style_text_outline_stroke_opa(s_zai_plan, LV_OPA_COVER, 0);
+
+    lv_obj_t *weekly_title = make_label(content, "周剩余", &ui_font_chinese_semibold_24,
+                                        COLOR_BLUE_USAGE);
+    lv_obj_align(weekly_title, LV_ALIGN_TOP_MID, 0, 278);
+    s_zai_weekly_percent = make_label(content, "--", &ui_font_digits_64, COLOR_TEXT);
+    lv_obj_set_style_transform_scale(s_zai_weekly_percent, 260, 0);
+    lv_obj_align(s_zai_weekly_percent, LV_ALIGN_TOP_MID, 0, 318);
+    s_zai_weekly_reset = make_usage_reset_row(content, 378, NULL);
+
+    make_page_dots(content, 2);
+}
+
+static void build_claudecode(void)
+{
+    s_claudecode_main = lv_obj_create(NULL);
+    set_screen_background(s_claudecode_main);
+    add_activity_event(s_claudecode_main);
+    lv_obj_add_event_cb(s_claudecode_main, swipe_event, LV_EVENT_GESTURE, NULL);
+    lv_obj_t *content = lv_obj_create(s_claudecode_main);
+    lv_obj_remove_style_all(content);
+    lv_obj_set_size(content, SCREEN_SIZE, SCREEN_SIZE);
+    lv_obj_center(content);
+    lv_obj_remove_flag(content, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(content, LV_OBJ_FLAG_CLICKABLE);
+
+    lv_obj_t *title = make_label(content, "Claude Code", &lv_font_montserrat_28, COLOR_TEXT);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 48);
+    s_time_claudecode_main = make_label(content, "--:--", &lv_font_montserrat_20, COLOR_MUTED);
+    lv_obj_align(s_time_claudecode_main, LV_ALIGN_TOP_MID, 0, 82);
+
+    lv_obj_t *kicker = make_label(content, "任务状态", &ui_font_detail_20, COLOR_MUTED);
+    lv_obj_align(kicker, LV_ALIGN_CENTER, 0, -82);
+    s_claudecode_status_label = make_label(content, "离线", &s_ui_font, COLOR_TEXT);
+    lv_obj_set_style_transform_scale(s_claudecode_status_label, 355, 0);
+    lv_obj_align(s_claudecode_status_label, LV_ALIGN_CENTER, 0, -19);
+
+    s_claudecode_pill = lv_obj_create(content);
+    lv_obj_set_size(s_claudecode_pill, 138, 48);
+    lv_obj_set_style_radius(s_claudecode_pill, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(s_claudecode_pill, color(COLOR_ORANGE), 0);
+    lv_obj_set_style_bg_opa(s_claudecode_pill, LV_OPA_20, 0);
+    lv_obj_set_style_border_width(s_claudecode_pill, 0, 0);
+    lv_obj_remove_flag(s_claudecode_pill, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(s_claudecode_pill, LV_OBJ_FLAG_CLICKABLE);
+    s_claudecode_pill_label = make_label(s_claudecode_pill, "--", &ui_font_detail_20, COLOR_ORANGE);
+    lv_obj_set_size(s_claudecode_pill_label, 120, 22);
+    lv_obj_set_style_text_align(s_claudecode_pill_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_center(s_claudecode_pill_label);
+    lv_obj_align(s_claudecode_pill, LV_ALIGN_CENTER, 0, 52);
+
+    s_claudecode_sessions = make_bambu_metric(content, "会话数", 92);
+    s_claudecode_activity = make_bambu_metric(content, "最近活动", 242);
+
+    make_page_dots(content, 3);
+}
+
+static void build_claudecode_detail(void)
+{
+    s_claudecode_detail = lv_obj_create(NULL);
+    set_screen_background(s_claudecode_detail);
+    add_activity_event(s_claudecode_detail);
+    lv_obj_add_event_cb(s_claudecode_detail, swipe_event, LV_EVENT_GESTURE, NULL);
+    lv_obj_t *safe = make_safe(s_claudecode_detail);
+    make_centered_title(s_claudecode_detail, "会话详情", &s_ui_font, 336, 256, 1, 50);
+
+    for (uint8_t index = 0; index < CLAUDECODE_SESSION_MAX; ++index) {
+        lv_obj_t *row = lv_obj_create(safe);
+        lv_obj_remove_style_all(row);
+        lv_obj_set_size(row, 340, 56);
+        lv_obj_align(row, LV_ALIGN_TOP_MID, 0, 46 + index * 68);
+        lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+
+        s_claudecode_detail_dots[index] = lv_obj_create(row);
+        lv_obj_remove_style_all(s_claudecode_detail_dots[index]);
+        lv_obj_set_size(s_claudecode_detail_dots[index], 14, 14);
+        lv_obj_set_style_radius(s_claudecode_detail_dots[index], LV_RADIUS_CIRCLE, 0);
+        lv_obj_set_style_bg_color(s_claudecode_detail_dots[index], color(COLOR_ORANGE), 0);
+        lv_obj_set_style_bg_opa(s_claudecode_detail_dots[index], LV_OPA_COVER, 0);
+        lv_obj_align(s_claudecode_detail_dots[index], LV_ALIGN_LEFT_MID, 8, 0);
+
+        s_claudecode_detail_projects[index] = make_label(row, "--", &lv_font_montserrat_18, COLOR_TEXT);
+        lv_obj_align(s_claudecode_detail_projects[index], LV_ALIGN_LEFT_MID, 32, -8);
+
+        s_claudecode_detail_states[index] = make_label(row, "--", &s_ui_font, COLOR_MUTED);
+        lv_obj_set_style_transform_scale(s_claudecode_detail_states[index], 282, 0);
+        lv_obj_align(s_claudecode_detail_states[index], LV_ALIGN_LEFT_MID, 34, 12);
+
+        s_claudecode_detail_times[index] = make_label(row, "--", &lv_font_montserrat_16, COLOR_MUTED);
+        lv_obj_align(s_claudecode_detail_times[index], LV_ALIGN_RIGHT_MID, -10, 0);
+    }
+
+    /* 点按主页进入详情（左右滑动已分配给翻页）。 */
+    lv_obj_add_event_cb(s_claudecode_main, detail_clicked, LV_EVENT_CLICKED, s_claudecode_detail);
+}
+
+/* 表情确认页：权限请求出现时自动切入。Dotii 好奇表情 + 请求摘要 +
+   批准/拒绝按钮；处理完或超时自动回表情页，右滑可暂时离开。 */
+static lv_obj_t *make_dotii_part(lv_obj_t *parent, int width, int height,
+                                 int x, int y, uint32_t part_color);
+static void build_claudecode_confirm(void)
+{
+    s_claudecode_confirm = lv_obj_create(NULL);
+    set_screen_background(s_claudecode_confirm);
+    add_activity_event(s_claudecode_confirm);
+    lv_obj_add_event_cb(s_claudecode_confirm, swipe_event, LV_EVENT_GESTURE, NULL);
+    lv_obj_add_flag(s_claudecode_confirm, LV_OBJ_FLAG_CLICKABLE);
+
+    s_confirm_left_eye = make_dotii_part(s_claudecode_confirm, 62, 82, -76, -142, 0xF4EAD2);
+    s_confirm_right_eye = make_dotii_part(s_claudecode_confirm, 46, 62, 82, -134, 0xF4EAD2);
+    s_confirm_mouth = make_dotii_part(s_claudecode_confirm, 24, 24, 8, -84, 0xF2C66D);
+
+    s_confirm_title = make_label(s_claudecode_confirm, "--", &ui_font_detail_20, COLOR_WARNING);
+    lv_obj_align(s_confirm_title, LV_ALIGN_CENTER, 0, 72);
+    s_confirm_preview = make_label(s_claudecode_confirm, "--", &s_ui_font, COLOR_TEXT);
+    lv_obj_set_style_transform_scale(s_confirm_preview, 282, 0);
+    lv_obj_set_size(s_confirm_preview, 300, 24);
+    lv_label_set_long_mode(s_confirm_preview, LV_LABEL_LONG_DOT);
+    lv_obj_set_style_text_align(s_confirm_preview, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(s_confirm_preview, LV_ALIGN_CENTER, 0, 98);
+    s_confirm_countdown = make_label(s_claudecode_confirm, "--", &ui_font_detail_20, COLOR_MUTED);
+    lv_obj_align(s_confirm_countdown, LV_ALIGN_BOTTOM_MID, 0, -18);
+
+    lv_obj_t *approve = lv_button_create(s_claudecode_confirm);
+    lv_obj_set_size(approve, 70, 70);
+    lv_obj_align(approve, LV_ALIGN_BOTTOM_LEFT, 144, -30);
+    lv_obj_set_style_radius(approve, 20, 0);
+    lv_obj_set_style_bg_color(approve, color(0x0B2416), 0);
+    lv_obj_set_style_border_width(approve, 1, 0);
+    lv_obj_set_style_border_color(approve, color(COLOR_GREEN), 0);
+    lv_obj_t *approve_icon = make_label(approve, LV_SYMBOL_OK,
+                                        &lv_font_montserrat_32, COLOR_GREEN);
+    lv_obj_center(approve_icon);
+    lv_obj_add_event_cb(approve, claudecode_decision_event, LV_EVENT_CLICKED, (void *)1);
+
+    lv_obj_t *deny = lv_button_create(s_claudecode_confirm);
+    lv_obj_set_size(deny, 70, 70);
+    lv_obj_align(deny, LV_ALIGN_BOTTOM_RIGHT, -144, -30);
+    lv_obj_set_style_radius(deny, 20, 0);
+    lv_obj_set_style_bg_color(deny, color(0x311A19), 0);
+    lv_obj_set_style_border_width(deny, 1, 0);
+    lv_obj_set_style_border_color(deny, color(COLOR_DANGER), 0);
+    lv_obj_t *deny_icon = make_label(deny, LV_SYMBOL_CLOSE,
+                                     &lv_font_montserrat_32, COLOR_DANGER);
+    lv_obj_center(deny_icon);
+    lv_obj_add_event_cb(deny, claudecode_decision_event, LV_EVENT_CLICKED, (void *)0);
 }
 
 static void build_custom(void)
@@ -1672,6 +1989,10 @@ static bool dotii_idle_fallback_active(void)
 
 static dotii_expression_t active_dotii_expression(void)
 {
+    /* 无真实数据（未连接或纯种子且无在线模块）期间统一播连接中表情。 */
+    if (!app_state_has_real_data(&s_snapshot)) {
+        return DOTII_EXPRESSION_CONNECTING;
+    }
     if (dotii_touch_active()) {
         return s_snapshot.dotii_touch_expression;
     }
@@ -1818,6 +2139,19 @@ static void render_dotii_expression(void)
     }
 }
 
+/* 确认页表情：固定 curious（好奇询问）姿态，整体上移给请求信息让位。 */
+static void render_confirm_expression(void)
+{
+    if (s_claudecode_confirm == NULL) return;
+    const uint32_t duration = dotii_expression_duration(DOTII_EXPRESSION_CURIOUS);
+    const uint32_t phase = ((lv_tick_get() % duration) * 8U) / duration;
+    const int curious = phase < 4 ? (int)phase : (int)(8 - phase);
+    set_dotii_part(s_confirm_left_eye, 62, 82, -76, -142, 0xF4EAD2, LV_OPA_COVER);
+    set_dotii_part(s_confirm_right_eye, 46, 62, 82, -134, 0xF4EAD2, LV_OPA_COVER);
+    set_dotii_part(s_confirm_mouth, 20 + curious, 20 + curious, 8, -84,
+                   0xF2C66D, LV_OPA_COVER);
+}
+
 static void dotii_touch_event(lv_event_t *event)
 {
     if (lv_event_get_code(event) != LV_EVENT_SHORT_CLICKED) return;
@@ -1835,6 +2169,7 @@ static void dotii_timer(lv_timer_t *timer)
 {
     (void)timer;
     if (s_current == s_dotii && s_screen_on) render_dotii_expression();
+    if (s_current == s_claudecode_confirm && s_screen_on) render_confirm_expression();
 }
 
 static void build_dotii(void)
@@ -1852,17 +2187,105 @@ static void build_dotii(void)
     s_dotii_accent_left = make_dotii_part(s_dotii, 12, 12, -132, 52, COLOR_CYAN);
     s_dotii_accent_right = make_dotii_part(s_dotii, 12, 12, 132, 52, COLOR_CYAN);
     s_dotii_accent_center = make_dotii_part(s_dotii, 12, 12, 0, 88, COLOR_CYAN);
+    /* 等待真实数据期间的连接状态小字（无数据时显示，真数据到达后隐藏）。 */
+    s_dotii_connecting_label = make_label(s_dotii, "", &ui_font_detail_20, COLOR_MUTED);
+    lv_obj_align(s_dotii_connecting_label, LV_ALIGN_BOTTOM_MID, 0, -48);
+    lv_obj_add_flag(s_dotii_connecting_label, LV_OBJ_FLAG_HIDDEN);
     /* Like the custom canvas, Dotii is an immersive ambient page and does not
        show the global navigation dots. */
     render_dotii_expression();
 }
 
-static lv_obj_t *make_quick_button(lv_obj_t *parent,
-                                   const lv_image_dsc_t *icon_source, uint32_t accent)
+/* -- 开机动画屏 ------------------------------------------------ */
+
+#define BOOT_TOTAL_MS 2000U
+#define BOOT_EYE_START_MS 200U
+#define BOOT_EYE_END_MS 1200U
+#define BOOT_MOUTH_START_MS 1000U
+#define BOOT_MOUTH_END_MS 1800U
+
+/* 播完（或点按跳过）进等待屏：Dotii connecting 表情 + 连接状态小字，
+   首份真实数据到达且用户未交互时再自动进入正常页面。 */
+static bool claudecode_perm_waiting(void);
+static void boot_anim_finish(void)
 {
+    if (s_boot_timer != NULL) {
+        lv_timer_t *timer = s_boot_timer;
+        s_boot_timer = NULL;
+        lv_timer_del(timer);
+    }
+    /* 动画期间权限请求已到达时直接去确认页（否则 2s 窗口会抢切回表情页）。 */
+    load_screen(claudecode_perm_waiting() ? s_claudecode_confirm : s_dotii, false);
+    /* 基准取 load 之后：load_screen 内部会刷新 s_last_activity，之后用户
+       任何交互都会改变它——首真数据到达时以"是否仍等于基准"判断无人操作。 */
+    s_wait_baseline_activity = s_last_activity;
+}
+
+static void boot_timer_cb(lv_timer_t *timer)
+{
+    (void)timer;
+    const uint32_t elapsed = lv_tick_elaps(s_boot_started);
+    if (elapsed >= BOOT_TOTAL_MS) {
+        boot_anim_finish();
+        return;
+    }
+    /* 睁眼：细缝 8px → 72px，ease-out（先快后慢，像自然睁眼）。 */
+    if (elapsed > BOOT_EYE_START_MS) {
+        uint32_t span = elapsed - BOOT_EYE_START_MS;
+        if (span > BOOT_EYE_END_MS - BOOT_EYE_START_MS) {
+            span = BOOT_EYE_END_MS - BOOT_EYE_START_MS;
+        }
+        const uint32_t phase = (span * 100U) / (BOOT_EYE_END_MS - BOOT_EYE_START_MS);
+        const uint32_t ease = 100U - (100U - phase) * (100U - phase) / 100U;
+        const int eye_height = 8 + (int)(64U * ease / 100U);
+        set_dotii_part(s_boot_left_eye, 52, eye_height, -78, -30, 0xF4EAD2, LV_OPA_COVER);
+        set_dotii_part(s_boot_right_eye, 52, eye_height, 78, -30, 0xF4EAD2, LV_OPA_COVER);
+    }
+    /* 嘴角浮现上扬：细横线 → 微笑弧，透明度同步淡入。 */
+    if (elapsed > BOOT_MOUTH_START_MS) {
+        uint32_t span = elapsed - BOOT_MOUTH_START_MS;
+        if (span > BOOT_MOUTH_END_MS - BOOT_MOUTH_START_MS) {
+            span = BOOT_MOUTH_END_MS - BOOT_MOUTH_START_MS;
+        }
+        const uint32_t phase = (span * 100U) / (BOOT_MOUTH_END_MS - BOOT_MOUTH_START_MS);
+        const int width = 24 + (int)(32U * phase / 100U);
+        const int height = 4 + (int)(8U * phase / 100U);
+        set_dotii_part(s_boot_mouth, width, height, 0, 70, 0xF4EAD2,
+                       (lv_opa_t)(LV_OPA_COVER * phase / 100U));
+    }
+}
+
+static void boot_skip_event(lv_event_t *event)
+{
+    if (lv_event_get_code(event) != LV_EVENT_CLICKED) return;
+    if (s_last_gesture_at != 0 && lv_tick_elaps(s_last_gesture_at) < 350) return;
+    boot_anim_finish();
+}
+
+static void build_boot(void)
+{
+    s_boot = lv_obj_create(NULL);
+    set_screen_background(s_boot);
+    lv_obj_add_event_cb(s_boot, boot_skip_event, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_flag(s_boot, LV_OBJ_FLAG_CLICKABLE);
+
+    s_boot_left_eye = make_dotii_part(s_boot, 52, 8, -78, -30, 0xF4EAD2);
+    s_boot_right_eye = make_dotii_part(s_boot, 52, 8, 78, -30, 0xF4EAD2);
+    s_boot_mouth = make_dotii_part(s_boot, 24, 4, 0, 70, 0xF4EAD2);
+
+    s_boot_started = lv_tick_get();
+    if (s_boot_started == 0) s_boot_started = 1;
+    s_boot_timer = lv_timer_create(boot_timer_cb, 40, NULL);
+}
+
+static lv_obj_t *make_quick_button(lv_obj_t *parent,
+                                   const lv_image_dsc_t *icon_source, uint32_t accent,
+                                   const char *text_mark)
+{
+    /* 控制中心容纳 6 个按钮：51px + 间距 6 恰好铺满 340px 安全区。 */
     lv_obj_t *button = lv_button_create(parent);
-    lv_obj_set_size(button, 78, 78);
-    lv_obj_set_style_radius(button, 20, 0);
+    lv_obj_set_size(button, 51, 51);
+    lv_obj_set_style_radius(button, 14, 0);
     lv_obj_set_style_bg_color(button, color(COLOR_SURFACE), 0);
     lv_obj_set_style_bg_opa(button, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(button, 1, 0);
@@ -1874,6 +2297,9 @@ static lv_obj_t *make_quick_button(lv_obj_t *parent,
         lv_obj_set_style_image_recolor(icon, color(accent), 0);
         lv_obj_set_style_image_recolor_opa(icon, LV_OPA_COVER, 0);
         lv_obj_center(icon);
+    } else if (text_mark != NULL) {
+        lv_obj_t *mark = make_label(button, text_mark, &lv_font_montserrat_20, accent);
+        lv_obj_center(mark);
     } else {
         lv_obj_t *icon = lv_obj_create(button);
         lv_obj_remove_style_all(icon);
@@ -1916,25 +2342,40 @@ static void build_control(void)
     lv_obj_set_style_bg_color(s_brightness_slider, color(0xE9FFF7), LV_PART_KNOB);
     lv_obj_add_event_cb(s_brightness_slider, brightness_changed, LV_EVENT_VALUE_CHANGED, NULL);
 
-    lv_obj_t *row = lv_obj_create(safe);
-    lv_obj_remove_style_all(row);
-    lv_obj_set_size(row, 340, 82);
-    lv_obj_set_pos(row, 9, 156);
-    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_column(row, 9, 0);
-    s_codex_quick = make_quick_button(row, &ui_icon_openai_36, COLOR_BLUE);
-    s_bambu_quick = make_quick_button(row, &ui_icon_bambu_36, COLOR_BAMBU);
-    s_custom_quick = make_quick_button(row, NULL, COLOR_WARNING);
-    s_dotii_quick = make_quick_button(row, NULL, COLOR_CYAN);
+    s_quick_row = lv_obj_create(safe);
+    lv_obj_remove_style_all(s_quick_row);
+    lv_obj_set_size(s_quick_row, 340, 82);
+    lv_obj_set_pos(s_quick_row, 9, 156);
+    lv_obj_remove_flag(s_quick_row, LV_OBJ_FLAG_SCROLLABLE);
+    s_codex_quick = make_quick_button(s_quick_row, &ui_icon_openai_36, COLOR_BLUE, NULL);
+    s_bambu_quick = make_quick_button(s_quick_row, &ui_icon_bambu_36, COLOR_BAMBU, NULL);
+    s_zai_quick = make_quick_button(s_quick_row, &ui_icon_zai_36, COLOR_VIOLET, NULL);
+    s_claudecode_quick = make_quick_button(s_quick_row, &ui_icon_claudecode_36, COLOR_ORANGE, NULL);
+    s_custom_quick = make_quick_button(s_quick_row, NULL, COLOR_WARNING, NULL);
+    s_dotii_quick = make_quick_button(s_quick_row, NULL, COLOR_CYAN, NULL);
     lv_obj_clean(s_dotii_quick);
-    make_dotii_part(s_dotii_quick, 12, 20, -12, -2, COLOR_CYAN);
-    make_dotii_part(s_dotii_quick, 12, 20, 12, -2, COLOR_CYAN);
+    make_dotii_part(s_dotii_quick, 8, 14, -8, -1, COLOR_CYAN);
+    make_dotii_part(s_dotii_quick, 8, 14, 8, -1, COLOR_CYAN);
     lv_obj_add_flag(s_custom_quick, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_event_cb(s_codex_quick, quick_clicked, LV_EVENT_CLICKED, s_main);
     lv_obj_add_event_cb(s_bambu_quick, quick_clicked, LV_EVENT_CLICKED, s_bambu_main);
+    lv_obj_add_event_cb(s_zai_quick, quick_clicked, LV_EVENT_CLICKED, s_zai_main);
+    lv_obj_add_event_cb(s_claudecode_quick, quick_clicked, LV_EVENT_CLICKED, s_claudecode_main);
     lv_obj_add_event_cb(s_custom_quick, quick_clicked, LV_EVENT_CLICKED, s_custom);
     lv_obj_add_event_cb(s_dotii_quick, quick_clicked, LV_EVENT_CLICKED, s_dotii);
+
+    /* 链路模式行：图标 + 文本（Wi-Fi / 蓝牙），位于快捷按钮与电量之间。 */
+    lv_obj_t *link_row = lv_obj_create(safe);
+    lv_obj_remove_style_all(link_row);
+    lv_obj_set_size(link_row, 340, 34);
+    lv_obj_align(link_row, LV_ALIGN_TOP_MID, 0, 250);
+    lv_obj_set_flex_flow(link_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(link_row, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(link_row, 8, 0);
+    lv_obj_remove_flag(link_row, LV_OBJ_FLAG_SCROLLABLE);
+    s_control_link_icon = make_label(link_row, LV_SYMBOL_WIFI, &lv_font_montserrat_20, COLOR_BLUE);
+    s_control_link_text = make_label(link_row, "Wi-Fi 模式", &ui_font_detail_20, COLOR_MUTED);
 
     s_battery_label = make_label(safe, "电量 --", &s_ui_font, COLOR_MUTED);
     lv_obj_set_width(s_battery_label, 300);
@@ -1993,10 +2434,18 @@ static void build_settings(void)
     lv_obj_t *refresh_text = make_label(refresh, "立即刷新数据", &ui_font_detail_20, COLOR_TEXT);
     lv_obj_center(refresh_text);
     lv_obj_add_event_cb(refresh, refresh_clicked, LV_EVENT_CLICKED, NULL);
+    if (device_config_get()->link_mode == DEVICE_LINK_MODE_BLE) {
+        lv_obj_add_flag(refresh, LV_OBJ_FLAG_HIDDEN);  /* 蓝牙模式由服务端推送 */
+    }
 
+    /* 蓝牙模式无 Wi-Fi/IP 语境，网络卡片不展示；链路模式切换统一在管理页。 */
+    const bool ble_mode = device_config_get()->link_mode == DEVICE_LINK_MODE_BLE;
+    s_settings_bridge = make_setting_card(s_settings_list, "配网模式",
+        ble_mode ? "蓝牙" : "Wi-Fi");
     s_settings_wifi = make_setting_card(s_settings_list, "网络", "未配置");
+    if (ble_mode) lv_obj_add_flag(lv_obj_get_parent(s_settings_wifi), LV_OBJ_FLAG_HIDDEN);
     s_settings_ip = make_setting_card(s_settings_list, "设备地址", "IP --");
-    s_settings_bridge = make_setting_card(s_settings_list, "Codex 数据源", "未配置");
+    if (ble_mode) lv_obj_add_flag(lv_obj_get_parent(s_settings_ip), LV_OBJ_FLAG_HIDDEN);
     char device_info[72];
     snprintf(device_info, sizeof(device_info), "Dotii %s · ESP-IDF %s",
              esp_app_get_description()->version, esp_get_idf_version());
@@ -2079,8 +2528,73 @@ static void build_power(void)
     lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -2);
 }
 
+/* 控制中心快捷按钮自适应排布：≤4 个单行 78px（原版布局）；
+   5 个以上两行、每行最多 3 个、70px，每行各自居中。 */
+static void layout_quick_buttons(const codex_snapshot_t *snapshot)
+{
+    lv_obj_t *buttons[] = {s_codex_quick, s_bambu_quick, s_zai_quick,
+                           s_claudecode_quick, s_custom_quick, s_dotii_quick};
+    const bool enabled[] = {snapshot->codex_enabled != false, snapshot->bambu_enabled != false,
+                            snapshot->zai_enabled != false, snapshot->claudecode_enabled != false,
+                            snapshot->custom_enabled != false, snapshot->dotii_enabled != false};
+    uint8_t visible = 0;
+    for (size_t index = 0; index < 6; ++index) {
+        if (enabled[index]) {
+            lv_obj_remove_flag(buttons[index], LV_OBJ_FLAG_HIDDEN);
+            visible++;
+        } else {
+            lv_obj_add_flag(buttons[index], LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+    const bool grid = visible > 4;
+    const int32_t size = grid ? 70 : 78;
+    const int32_t gap = grid ? 14 : 9;
+    uint8_t first_row = grid ? (visible > 3 ? 3 : visible) : visible;
+    if (first_row == 0) first_row = 1;
+    uint8_t placed = 0;
+    int32_t y = 0;
+    for (size_t index = 0; index < 6; ++index) {
+        if (!enabled[index]) continue;
+        const uint8_t in_row = placed < first_row ? placed : placed - first_row;
+        const uint8_t row_count = placed < first_row ? first_row : (uint8_t)(visible - first_row);
+        const int32_t row_width = row_count * size + (row_count - 1) * (int32_t)gap;
+        const int32_t offset_x = (340 - row_width) / 2;
+        if (placed == first_row) y = size + gap;
+        lv_obj_set_size(buttons[index], size, size);
+        lv_obj_set_pos(buttons[index], offset_x + in_row * (size + gap), y);
+        placed++;
+    }
+    /* 两行布局时收窄行高并上移，为链路/电量行让出空间。 */
+    lv_obj_set_size(s_quick_row, 340, grid ? size * 2 + gap : 82);
+    lv_obj_set_pos(s_quick_row, 9, grid ? 138 : 156);
+    if (s_control_link_icon != NULL) {
+        lv_obj_t *link_parent = lv_obj_get_parent(s_control_link_icon);
+        lv_obj_set_pos(link_parent, 9, grid ? size * 2 + gap + 146 : 250);
+    }
+}
+
+/* Claude Code 权限请求等待中：期间豁免自动返回/熄屏/睡眠（300s 请求超时
+   是自然恢复上限），并由新请求边沿触发自动切到详情页。本地校验过期——
+   断连后快照冻结在 pending 态时，豁免不能永久成立（电池耗尽）。 */
+static bool claudecode_perm_waiting(void)
+{
+    return s_snapshot.claudecode_enabled && s_snapshot.claudecode_perm_enabled &&
+           s_snapshot.claudecode_perm_pending &&
+           s_snapshot.claudecode_perm_expires > time(NULL);
+}
+
 static void update_snapshot(const codex_snapshot_t *snapshot)
 {
+    /* 首份真实数据到达：若用户从等待屏出现后从未交互，自动进入正常页面；
+       交互过（已自行滑走浏览）则不打扰。 */
+    static bool s_seen_real_data = false;
+    if (!s_seen_real_data && app_state_has_real_data(snapshot)) {
+        s_seen_real_data = true;
+        if (s_current == s_dotii && s_wait_baseline_activity != 0 &&
+            s_last_activity == s_wait_baseline_activity) {
+            load_screen(first_enabled_screen(), true);
+        }
+    }
     if (!s_dotii_state_seen || snapshot->dotii_state_token != s_dotii_state_token ||
         snapshot->dotii_state_assigned != s_dotii_state_assigned ||
         snapshot->dotii_state_duration_ms != s_dotii_state_duration_ms ||
@@ -2124,7 +2638,8 @@ static void update_snapshot(const codex_snapshot_t *snapshot)
         }
         if (s_current != NULL) lv_obj_invalidate(s_current);
     }
-    if (!snapshot->valid || snapshot->stale || !snapshot->weekly_available) {
+    if (!snapshot->valid || snapshot->stale || snapshot->preview_data ||
+        !snapshot->weekly_available) {
         lv_label_set_text(s_percent, "--");
         lv_arc_set_value(s_main_arc, 0);
         lv_obj_set_style_arc_color(s_main_arc, color(0x59605E), LV_PART_INDICATOR);
@@ -2134,12 +2649,14 @@ static void update_snapshot(const codex_snapshot_t *snapshot)
         lv_obj_set_style_arc_color(s_main_arc, color(COLOR_BLUE), LV_PART_INDICATOR);
     }
 
+    const codex_task_status_t codex_status = snapshot->preview_data
+        ? CODEX_STATUS_OFFLINE : snapshot->status;
     uint32_t status_color = COLOR_MUTED;
-    if (snapshot->status == CODEX_STATUS_WORKING || snapshot->status == CODEX_STATUS_COMPLETED) status_color = COLOR_GREEN;
-    else if (snapshot->status == CODEX_STATUS_WAITING) status_color = COLOR_WARNING;
-    else if (snapshot->status == CODEX_STATUS_FAILED) status_color = COLOR_DANGER;
-    lv_label_set_text(s_status, app_state_status_text(snapshot->status));
-    bool long_status = snapshot->status == CODEX_STATUS_OFFLINE;
+    if (codex_status == CODEX_STATUS_WORKING || codex_status == CODEX_STATUS_COMPLETED) status_color = COLOR_GREEN;
+    else if (codex_status == CODEX_STATUS_WAITING) status_color = COLOR_WARNING;
+    else if (codex_status == CODEX_STATUS_FAILED) status_color = COLOR_DANGER;
+    lv_label_set_text(s_status, app_state_status_text(codex_status));
+    bool long_status = codex_status == CODEX_STATUS_OFFLINE;
     lv_obj_set_width(s_status_pill, long_status ? 172 : 138);
     lv_obj_set_width(s_status, long_status ? 116 : 82);
     lv_obj_set_style_text_color(s_status, color(status_color), 0);
@@ -2165,7 +2682,8 @@ static void update_snapshot(const codex_snapshot_t *snapshot)
         lv_label_set_text(s_reset_time, "");
     }
 
-    if (!snapshot->valid || snapshot->stale || !snapshot->five_hour_available) {
+    if (!snapshot->valid || snapshot->stale || snapshot->preview_data ||
+        !snapshot->five_hour_available) {
         lv_label_set_text(s_plus_five_percent, "--");
         lv_arc_set_value(s_plus_five_arc, 0);
         lv_obj_set_style_arc_color(s_plus_five_arc, color(0x59605E), LV_PART_INDICATOR);
@@ -2176,7 +2694,8 @@ static void update_snapshot(const codex_snapshot_t *snapshot)
         lv_obj_set_style_arc_color(s_plus_five_arc, color(COLOR_ORANGE), LV_PART_INDICATOR);
         set_usage_reset_text(s_plus_five_reset, snapshot->five_hour_reset_date, true);
     }
-    if (!snapshot->valid || snapshot->stale || !snapshot->weekly_available) {
+    if (!snapshot->valid || snapshot->stale || snapshot->preview_data ||
+        !snapshot->weekly_available) {
         lv_label_set_text(s_plus_weekly_percent, "--");
         lv_arc_set_value(s_plus_weekly_arc, 0);
         lv_obj_set_style_arc_color(s_plus_weekly_arc, color(0x59605E), LV_PART_INDICATOR);
@@ -2252,6 +2771,149 @@ static void update_snapshot(const codex_snapshot_t *snapshot)
     if (can_stop) lv_obj_remove_state(s_bambu_stop, LV_STATE_DISABLED);
     else lv_obj_add_state(s_bambu_stop, LV_STATE_DISABLED);
 
+    bool zai_online = snapshot->zai_configured && snapshot->zai_connected;
+    bool zai_available = zai_online && snapshot->zai_five_hour_available;
+    if (zai_available) {
+        lv_label_set_text_fmt(s_zai_percent, "%d%%", snapshot->zai_five_hour_remaining_percent);
+        lv_arc_set_value(s_zai_arc, snapshot->zai_five_hour_remaining_percent);
+        lv_obj_set_style_arc_color(s_zai_arc, color(COLOR_VIOLET), LV_PART_INDICATOR);
+    } else {
+        lv_label_set_text(s_zai_percent, "--");
+        lv_arc_set_value(s_zai_arc, 0);
+        lv_obj_set_style_arc_color(s_zai_arc, color(0x59605E), LV_PART_INDICATOR);
+    }
+    set_usage_reset_text(s_zai_reset, snapshot->zai_five_hour_reset_date, true);
+    if (snapshot->zai_plan_level[0]) {
+        lv_label_set_text_fmt(s_zai_plan, "%s 套餐", snapshot->zai_plan_level);
+    } else {
+        lv_label_set_text(s_zai_plan,
+                          zai_online ? "已连接" :
+                          snapshot->zai_configured ? "连接中" : "未配置");
+    }
+    if (zai_online && snapshot->zai_weekly_available) {
+        lv_label_set_text_fmt(s_zai_weekly_percent, "%d%%", snapshot->zai_weekly_remaining_percent);
+        lv_arc_set_value(s_zai_weekly_arc, snapshot->zai_weekly_remaining_percent);
+        lv_obj_set_style_arc_color(s_zai_weekly_arc, color(COLOR_BLUE_USAGE), LV_PART_INDICATOR);
+    } else {
+        lv_label_set_text(s_zai_weekly_percent, "--");
+        lv_arc_set_value(s_zai_weekly_arc, 0);
+        lv_obj_set_style_arc_color(s_zai_weekly_arc, color(0x59605E), LV_PART_INDICATOR);
+    }
+    /* Z.ai 的周窗口按订阅周期浮动，重置时间整体用同一数字字体显示。 */
+    lv_label_set_text(s_zai_weekly_reset,
+                      (zai_online && snapshot->zai_weekly_available &&
+                       snapshot->zai_weekly_reset_date[0])
+                          ? snapshot->zai_weekly_reset_date : "--");
+
+    bool claudecode_online = snapshot->claudecode_connected;
+    uint32_t claudecode_color = COLOR_MUTED;
+    if (claudecode_online) {
+        if (snapshot->claudecode_status == CODEX_STATUS_WORKING ||
+            snapshot->claudecode_status == CODEX_STATUS_COMPLETED) {
+            claudecode_color = COLOR_GREEN;
+        } else if (snapshot->claudecode_status == CODEX_STATUS_WAITING) {
+            claudecode_color = COLOR_WARNING;
+        } else if (snapshot->claudecode_status == CODEX_STATUS_FAILED) {
+            claudecode_color = COLOR_DANGER;
+        } else {
+            claudecode_color = COLOR_ORANGE;
+        }
+    }
+    lv_label_set_text(s_claudecode_status_label,
+                      claudecode_online ? app_state_status_text(snapshot->claudecode_status) : "离线");
+    lv_obj_set_style_text_color(s_claudecode_status_label, color(claudecode_color), 0);
+    if (claudecode_online && snapshot->claudecode_session_count > 0) {
+        lv_label_set_text_fmt(s_claudecode_pill_label, "%u 个会话", snapshot->claudecode_session_count);
+        lv_label_set_text_fmt(s_claudecode_sessions, "%u", snapshot->claudecode_session_count);
+    } else {
+        lv_label_set_text(s_claudecode_pill_label, "等待事件");
+        lv_label_set_text(s_claudecode_sessions, "--");
+    }
+    if (snapshot->claudecode_updated_at > 0) {
+        time_t activity_delta = time(NULL) - snapshot->claudecode_updated_at;
+        if (activity_delta < 0) activity_delta = 0;
+        if (activity_delta < 60) lv_label_set_text(s_claudecode_activity, "<1m");
+        else if (activity_delta < 3600) lv_label_set_text_fmt(s_claudecode_activity, "%dm", (int)(activity_delta / 60));
+        else if (activity_delta < 86400) lv_label_set_text_fmt(s_claudecode_activity, "%dh", (int)(activity_delta / 3600));
+        else lv_label_set_text(s_claudecode_activity, ">1d");
+    } else {
+        lv_label_set_text(s_claudecode_activity, "--");
+    }
+
+    /* 表情确认页驱动：新权限请求（id 边沿）自动切入确认页，处理完或超时
+       （pending 消失）自动回表情页。同一请求只切一次——右滑离开后不再拉回，
+       下一条新请求会再次切入。设置/控制中心/电源流程期间不打断。 */
+    {
+        static char s_perm_seen_id[CLAUDECODE_PERM_ID_MAX] = "";
+        const bool perm_waiting = claudecode_perm_waiting();
+        if (perm_waiting &&
+            strncmp(snapshot->claudecode_perm_id, s_perm_seen_id,
+                    sizeof(s_perm_seen_id)) != 0) {
+            strlcpy(s_perm_seen_id, snapshot->claudecode_perm_id, sizeof(s_perm_seen_id));
+            if (s_current != s_settings && s_current != s_control && s_current != s_power) {
+                if (s_screen_saver_active) exit_screen_saver();
+                if (!s_screen_on) screen_wake();
+                lv_label_set_text_fmt(s_confirm_title, "%s · %s",
+                                      snapshot->claudecode_perm_project[0]
+                                          ? snapshot->claudecode_perm_project : "Claude Code",
+                                      snapshot->claudecode_perm_tool);
+                lv_label_set_text(s_confirm_preview,
+                                  snapshot->claudecode_perm_preview[0]
+                                      ? snapshot->claudecode_perm_preview : "--");
+                /* 转场 pending（翻页窗口/屏保退出）会静默吞掉这次切页——
+                   置待切标志由 ui_timer 重试，同 id 不再触发边沿所以必须补。 */
+                if (s_screen_load_pending) {
+                    s_perm_switch_pending = true;
+                } else {
+                    load_screen(s_claudecode_confirm, true);
+                }
+            }
+        }
+        if (!perm_waiting) {
+            s_perm_seen_id[0] = '\0';
+            if (s_current == s_claudecode_confirm) load_screen(s_dotii, true);
+        } else if (s_current == s_claudecode_confirm) {
+            time_t remaining = snapshot->claudecode_perm_expires - time(NULL);
+            if (remaining < 0) remaining = 0;
+            if (snapshot->claudecode_perm_queued > 0) {
+                lv_label_set_text_fmt(s_confirm_countdown, "%d 秒 · 还有 %u 个",
+                                      (int)remaining, snapshot->claudecode_perm_queued);
+            } else {
+                lv_label_set_text_fmt(s_confirm_countdown, "%d 秒", (int)remaining);
+            }
+        }
+    }
+
+    for (uint8_t index = 0; index < CLAUDECODE_SESSION_MAX; ++index) {
+        const claudecode_session_t *session = &snapshot->claudecode_sessions[index];
+        bool present = claudecode_online && snapshot->claudecode_session_count > 0 &&
+                       index < snapshot->claudecode_session_count;
+        uint32_t dot_color = COLOR_MUTED;
+        if (present) {
+            if (session->status == CODEX_STATUS_WORKING ||
+                session->status == CODEX_STATUS_COMPLETED) dot_color = COLOR_GREEN;
+            else if (session->status == CODEX_STATUS_WAITING) dot_color = COLOR_WARNING;
+            else if (session->status == CODEX_STATUS_FAILED) dot_color = COLOR_DANGER;
+        }
+        lv_obj_set_style_bg_color(s_claudecode_detail_dots[index], color(dot_color), 0);
+        lv_obj_set_style_bg_opa(s_claudecode_detail_dots[index],
+                                present ? LV_OPA_COVER : LV_OPA_20, 0);
+        lv_label_set_text(s_claudecode_detail_projects[index],
+                          present && session->project[0] ? session->project : "--");
+        lv_label_set_text(s_claudecode_detail_states[index],
+                          present ? app_state_status_text(session->status) : "--");
+        if (present && session->updated_at > 0) {
+            time_t session_delta = time(NULL) - session->updated_at;
+            if (session_delta < 0) session_delta = 0;
+            if (session_delta < 60) lv_label_set_text(s_claudecode_detail_times[index], "<1m");
+            else if (session_delta < 3600) lv_label_set_text_fmt(s_claudecode_detail_times[index], "%dm", (int)(session_delta / 60));
+            else if (session_delta < 86400) lv_label_set_text_fmt(s_claudecode_detail_times[index], "%dh", (int)(session_delta / 3600));
+            else lv_label_set_text(s_claudecode_detail_times[index], ">1d");
+        } else {
+            lv_label_set_text(s_claudecode_detail_times[index], "--");
+        }
+    }
+
     const uint8_t *camera = snapshot->bambu_camera_available ?
         connectivity_bambu_camera_data(snapshot->bambu_camera_revision) : NULL;
     if (camera != NULL) {
@@ -2316,14 +2978,7 @@ static void update_snapshot(const codex_snapshot_t *snapshot)
         lv_obj_remove_flag(s_custom_body, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(s_custom_footer, LV_OBJ_FLAG_HIDDEN);
     }
-    if (snapshot->codex_enabled) lv_obj_remove_flag(s_codex_quick, LV_OBJ_FLAG_HIDDEN);
-    else lv_obj_add_flag(s_codex_quick, LV_OBJ_FLAG_HIDDEN);
-    if (snapshot->bambu_enabled) lv_obj_remove_flag(s_bambu_quick, LV_OBJ_FLAG_HIDDEN);
-    else lv_obj_add_flag(s_bambu_quick, LV_OBJ_FLAG_HIDDEN);
-    if (snapshot->custom_enabled) lv_obj_remove_flag(s_custom_quick, LV_OBJ_FLAG_HIDDEN);
-    else lv_obj_add_flag(s_custom_quick, LV_OBJ_FLAG_HIDDEN);
-    if (snapshot->dotii_enabled) lv_obj_remove_flag(s_dotii_quick, LV_OBJ_FLAG_HIDDEN);
-    else lv_obj_add_flag(s_dotii_quick, LV_OBJ_FLAG_HIDDEN);
+    layout_quick_buttons(snapshot);
     render_dotii_expression();
     update_page_dots();
 
@@ -2350,28 +3005,95 @@ static void ui_timer(lv_timer_t *timer)
     lv_label_set_text(s_time_detail, clock);
     lv_label_set_text(s_time_bambu_main, clock);
     lv_label_set_text(s_time_bambu_detail, clock);
+    lv_label_set_text(s_time_zai_main, clock);
+    lv_label_set_text(s_time_claudecode_main, clock);
+
+    /* 控制中心链路模式行：图标与连接状态每秒刷新。 */
+    if (s_control_link_icon != NULL) {
+        const bool ble_link = device_config_get()->link_mode == DEVICE_LINK_MODE_BLE;
+        const bool link_online = ble_link ? ble_bridge_is_connected()
+                                          : connectivity_is_wifi_connected();
+        const uint32_t link_color = !link_online ? COLOR_MUTED :
+            ble_link ? COLOR_VIOLET : COLOR_BLUE;
+        lv_label_set_text(s_control_link_icon,
+                          ble_link ? LV_SYMBOL_BLUETOOTH : LV_SYMBOL_WIFI);
+        lv_obj_set_style_text_color(s_control_link_icon, color(link_color), 0);
+        lv_label_set_text(s_control_link_text,
+                          ble_link ? (link_online ? "蓝牙模式 · 已连接" : "蓝牙模式 · 待连接")
+                                   : (link_online ? "Wi-Fi 模式 · 已连接" : "Wi-Fi 模式 · 待连接"));
+    }
+
+    /* 等待屏连接状态小字：无真实数据（未连接或纯种子）期间显示。 */
+    if (s_dotii_connecting_label != NULL) {
+        if (!app_state_has_real_data(&s_snapshot)) {
+            const bool ble_wait = device_config_get()->link_mode == DEVICE_LINK_MODE_BLE;
+            lv_label_set_text(s_dotii_connecting_label,
+                              ble_wait ? "等待蓝牙连接" : "正在连接 Wi-Fi");
+            lv_obj_clear_flag(s_dotii_connecting_label, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(s_dotii_connecting_label, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+
+    /* 权限确认页切页重试：上一份快照的切页被转场 pending 挡住时补切。 */
+    if (s_perm_switch_pending) {
+        if (!claudecode_perm_waiting() || s_current == s_claudecode_confirm ||
+            s_current == s_settings || s_current == s_control || s_current == s_power) {
+            s_perm_switch_pending = false;
+        } else if (!s_screen_load_pending) {
+            s_perm_switch_pending = false;
+            load_screen(s_claudecode_confirm, true);
+        }
+    }
+
+    /* 确认页退出兜底：退出动作挂在快照应用路径上，快照流一旦中断
+       （蓝牙断连/推送丢失），服务端清除 pending 的快照永远到不了——
+       确认页会无限期停留（倒计时冻结）。请求本地过期即退回表情页，
+       与快照应用路径的行为保持一致。 */
+    if (s_current == s_claudecode_confirm && !claudecode_perm_waiting()) {
+        s_perm_switch_pending = false;
+        if (!s_screen_load_pending) {
+            load_screen(s_dotii, true);
+        }
+    }
 
     char summary[80];
     connectivity_get_summary(summary, sizeof(summary));
     lv_label_set_text(s_settings_wifi, summary);
     connectivity_get_ip(summary, sizeof(summary));
     lv_label_set_text_fmt(s_settings_ip, "IP %s", summary);
-    connectivity_get_bridge_summary(summary, sizeof(summary));
-    lv_label_set_text(s_settings_bridge, summary);
+    {
+        const bool link_ble = device_config_get()->link_mode == DEVICE_LINK_MODE_BLE;
+        const bool link_online = link_ble ? ble_bridge_is_connected()
+                                          : connectivity_is_wifi_connected();
+        lv_label_set_text(s_settings_bridge,
+                          link_ble ? (link_online ? "蓝牙 · 在线" : "蓝牙 · 离线")
+                                   : (link_online ? "Wi-Fi · 在线" : "Wi-Fi · 离线"));
+    }
 
     uint32_t inactive_ms = lv_tick_elaps(s_last_activity);
     if (s_ignore_next_dotii_click && inactive_ms > 1000) {
         s_ignore_next_dotii_click = false;
+    }
+    /* 自动回表情页：开关开启且表情页可用时，其他页面 30 秒无交互自动切回。
+       仅对页面循环成员及其详情页生效（设置/控制中心/熄屏流程不打断）；
+       权限请求等待期间豁免（确认页正在等人处理）。 */
+    if (s_screen_on && !s_screen_saver_active && s_snapshot.dotii_return_enabled &&
+        s_snapshot.dotii_enabled && inactive_ms >= 30000U && !claudecode_perm_waiting() &&
+        s_current != s_dotii && s_current != s_settings &&
+        s_current != s_control && s_current != s_power) {
+        load_screen(s_dotii, true);
     }
     const uint32_t active_screen_off_timeout = s_external_power ?
         s_charging_screen_off_timeout_seconds : s_screen_off_timeout_seconds;
     const uint32_t active_sleep_timeout = s_external_power ?
         s_charging_sleep_timeout_seconds : s_sleep_timeout_seconds;
     if (s_screen_on && !s_screen_saver_active && active_screen_off_timeout > 0 &&
-        inactive_ms > active_screen_off_timeout * 1000U) {
+        inactive_ms > active_screen_off_timeout * 1000U && !claudecode_perm_waiting()) {
         if (!enter_screen_saver()) screen_off();
     }
-    if (active_sleep_timeout > 0 && inactive_ms > active_sleep_timeout * 1000U) {
+    if (active_sleep_timeout > 0 && inactive_ms > active_sleep_timeout * 1000U &&
+        !claudecode_perm_waiting()) {
         s_last_activity = lv_tick_get();
         board_input_request_sleep();
     }
@@ -2392,12 +3114,20 @@ void state_ui_start(QueueHandle_t snapshot_queue)
     build_plus_main();
     build_detail();
     build_bambu();
+    build_zai();
+    build_claudecode();
+    build_claudecode_confirm();
+    build_claudecode_detail();
     build_custom();
     build_dotii();
     build_settings();
     build_control();
     build_power();
-    s_current = page_screen(0);
+    build_boot();
+    /* 开机第一屏是睁眼微笑动画，播完进等待屏（真实数据到达再进正常页面）。
+       必须显式激活 boot 屏——只赋值 s_current 不会切换 LVGL 活动屏。 */
+    s_current = s_boot;
+    lv_screen_load(s_boot);
     s_last_activity = lv_tick_get();
     lv_obj_invalidate(s_current);
     /* Push one complete first frame while the caller still owns the BSP LVGL
@@ -2408,6 +3138,32 @@ void state_ui_start(QueueHandle_t snapshot_queue)
     lv_timer_create(ui_timer, 1000, NULL);
     /* The compact geometric character uses eight 100 ms phases. */
     lv_timer_create(dotii_timer, 100, NULL);
+}
+
+static int main_page_index(lv_obj_t *screen)
+{
+    for (uint8_t page = 0; page < PAGE_COUNT; ++page) {
+        if (screen == page_screen(page)) return (int)page;
+    }
+    return -1;
+}
+
+static void goto_page(int delta)
+{
+    int current_page = main_page_index(s_current);
+    if (current_page < 0) {
+        load_screen(first_enabled_screen(), true);
+        return;
+    }
+    for (uint8_t offset = 1; offset <= PAGE_COUNT; ++offset) {
+        int step = ((int)current_page + (delta > 0 ? (int)offset : -(int)offset));
+        uint8_t next = (uint8_t)((step % (int)PAGE_COUNT + (int)PAGE_COUNT) % (int)PAGE_COUNT);
+        if (page_enabled(next)) {
+            /* 转场方向跟随滑动：左滑（下一页）SWEEP_LEFT，右滑 SWEEP_RIGHT。 */
+            load_screen(page_screen(next), delta > 0);
+            return;
+        }
+    }
 }
 
 void state_ui_button_a_short(void)
@@ -2429,20 +3185,7 @@ void state_ui_button_a_short(void)
         load_screen(first_enabled_screen(), false);
         return;
     }
-    int current_page = (s_current == s_main || s_current == s_plus_main) ? 0 :
-        s_current == s_bambu_main ? 1 : s_current == s_custom ? 2 :
-        s_current == s_dotii ? 3 : -1;
-    if (current_page < 0) {
-        load_screen(first_enabled_screen(), true);
-        return;
-    }
-    for (uint8_t offset = 1; offset <= PAGE_COUNT; ++offset) {
-        uint8_t next = (current_page + offset) % PAGE_COUNT;
-        if (page_enabled(next)) {
-            load_screen(page_screen(next), true);
-            return;
-        }
-    }
+    goto_page(1);
 }
 
 void state_ui_button_a_long(void)

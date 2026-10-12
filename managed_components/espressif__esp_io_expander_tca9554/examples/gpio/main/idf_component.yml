@@ -1,4 +1,0 @@
-dependencies:
-  esp_io_expander_tca9554:
-    public: true
-    version: ^2
