@@ -3,7 +3,25 @@ import Darwin
 import Foundation
 import ServiceManagement
 
-private let appName = "Dotii 管理中心"
+private func runtimeURL() -> URL {
+    if let override = ProcessInfo.processInfo.environment["DOTII_RUNTIME_DIR"], override.hasPrefix("/") {
+        return URL(fileURLWithPath: override, isDirectory: true)
+    }
+    return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("Dotii", isDirectory: true)
+}
+
+// The web app persists the application language here. Read it when presenting
+// native UI as well, including before the backend has finished starting.
+private func text(_ chinese: String, _ english: String) -> String {
+    let url = runtimeURL().appendingPathComponent("connection.json")
+    guard let data = try? Data(contentsOf: url),
+          let settings = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          settings["language"] as? String == "en" else { return chinese }
+    return english
+}
+
+private var appName: String { text("Dotii 管理中心", "Dotii Management Center") }
 private let dashboardPort = Int(ProcessInfo.processInfo.environment["DOTII_PORT"] ?? "") ?? 8787
 private let dashboardURL = URL(string: "http://127.0.0.1:\(dashboardPort)")!
 
@@ -11,7 +29,7 @@ private func loginItemCommand() -> Int32? {
     let arguments = CommandLine.arguments
     guard arguments.count == 3, arguments[1] == "--login-item" else { return nil }
     guard #available(macOS 13.0, *) else {
-        FileHandle.standardError.write(Data("需要 macOS 13 或更高版本\n".utf8))
+        FileHandle.standardError.write(Data((text("需要 macOS 13 或更高版本", "macOS 13 or later is required") + "\n").utf8))
         return 2
     }
 
@@ -27,14 +45,19 @@ private func loginItemCommand() -> Int32? {
             return 3
         case "enable":
             if service.status != .enabled { try service.register() }
-            print("enabled")
-            return 0
+            if service.status == .requiresApproval {
+                FileHandle.standardError.write(Data((text("请在系统设置的登录项中批准 Dotii 管理中心", "Approve Dotii Management Center in System Settings > Login Items") + "\n").utf8))
+                return 3
+            }
+            let enabled = service.status == .enabled
+            print(enabled ? "enabled" : "disabled")
+            return enabled ? 0 : 3
         case "disable":
             if service.status == .enabled { try service.unregister() }
             print("disabled")
             return 0
         default:
-            FileHandle.standardError.write(Data("未知登录启动操作\n".utf8))
+            FileHandle.standardError.write(Data((text("未知登录启动操作", "Unknown login item action") + "\n").utf8))
             return 2
         }
     } catch {
@@ -43,24 +66,19 @@ private func loginItemCommand() -> Int32? {
     }
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem?
     private var statusMenuItem: NSMenuItem?
     private var loginMenuItem: NSMenuItem?
     private var bridgeProcess: Process?
     private var logHandle: FileHandle?
     private var lockDescriptor: Int32 = -1
+    private var ownsInstanceLock = false
+    private var statusText = ("正在启动后台服务", "Starting background service")
     private var shuttingDown = false
     private var restartAttempts = 0
 
-    private lazy var runtimeDirectory: URL = {
-        if let override = ProcessInfo.processInfo.environment["DOTII_RUNTIME_DIR"],
-           override.hasPrefix("/") {
-            return URL(fileURLWithPath: override, isDirectory: true)
-        }
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        return base.appendingPathComponent("Dotii", isDirectory: true)
-    }()
+    private lazy var runtimeDirectory = runtimeURL()
 
     private var logURL: URL { runtimeDirectory.appendingPathComponent("bridge.log") }
     private var hostPIDURL: URL { runtimeDirectory.appendingPathComponent("management-center.pid") }
@@ -86,13 +104,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             createStatusMenu()
             launchBridge()
         } catch {
-            showError("\(appName) 无法启动", detail: error.localizedDescription)
+            showError(text("Dotii 管理中心无法启动", "Dotii Management Center could not start"), detail: error.localizedDescription)
             NSApp.terminate(nil)
         }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         shuttingDown = true
+        guard ownsInstanceLock else { return }
         stopBridge()
         try? FileManager.default.removeItem(at: hostPIDURL)
         if lockDescriptor >= 0 {
@@ -105,7 +124,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func acquireSingleInstanceLock() -> Bool {
         let lockURL = runtimeDirectory.appendingPathComponent("management-center.lock")
         lockDescriptor = open(lockURL.path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
-        return lockDescriptor >= 0 && flock(lockDescriptor, LOCK_EX | LOCK_NB) == 0
+        guard lockDescriptor >= 0 else { return false }
+        ownsInstanceLock = flock(lockDescriptor, LOCK_EX | LOCK_NB) == 0
+        if !ownsInstanceLock {
+            close(lockDescriptor)
+            lockDescriptor = -1
+        }
+        return ownsInstanceLock
     }
 
     private func createStatusMenu() {
@@ -118,7 +143,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.toolTip = appName
         }
         let menu = NSMenu()
-        let status = NSMenuItem(title: "正在启动后台服务", action: nil, keyEquivalent: "")
+        menu.delegate = self
+        let status = NSMenuItem(title: text(statusText.0, statusText.1), action: nil, keyEquivalent: "")
         status.isEnabled = false
         statusMenuItem = status
         menu.addItem(status)
@@ -133,7 +159,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(withTitle: "退出 Dotii 管理中心", action: #selector(quit), keyEquivalent: "q").target = self
         item.menu = menu
         statusItem = item
+        menuWillOpen(menu)
+    }
+
+    func menuWillOpen(_ menu: NSMenu) {
+        let titles: [(Selector, String, String)] = [
+            (#selector(openDashboard), "打开 Dotii 管理中心", "Open Dotii Management Center"),
+            (#selector(openLog), "查看运行日志", "View Logs"),
+            (#selector(toggleLoginItem), "登录时启动", "Launch at Login"),
+            (#selector(quit), "退出 Dotii 管理中心", "Quit Dotii Management Center"),
+        ]
+        for (action, chinese, english) in titles {
+            menu.items.first { $0.action == action }?.title = text(chinese, english)
+        }
+        statusMenuItem?.title = text(statusText.0, statusText.1)
+        statusItem?.button?.toolTip = appName
+        statusItem?.button?.image?.accessibilityDescription = appName
         refreshLoginItemState()
+    }
+
+    private func setStatus(_ chinese: String, _ english: String) {
+        statusText = (chinese, english)
+        statusMenuItem?.title = text(chinese, english)
     }
 
     private func rotateLog() throws {
@@ -159,7 +206,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 throw NSError(
                     domain: "DotiiManagementCenter",
                     code: 1,
-                    userInfo: [NSLocalizedDescriptionKey: "安装包缺少后台服务程序 DotiiBridge"]
+                    userInfo: [NSLocalizedDescriptionKey: text("安装包缺少后台服务程序 DotiiBridge", "The application is missing the DotiiBridge background service")]
                 )
             }
 
@@ -184,12 +231,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             try process.run()
             bridgeProcess = process
             logHandle = handle
-            statusMenuItem?.title = "正在启动后台服务"
+            setStatus("正在启动后台服务", "Starting background service")
             waitForHealth(process: process)
         } catch {
             appendHostDiagnostic("后台服务启动失败：\(error.localizedDescription)")
-            statusMenuItem?.title = "后台服务启动失败"
-            showError("\(appName) 未能启动", detail: "\(error.localizedDescription)\n\n日志：\(logURL.path)")
+            setStatus("后台服务启动失败", "Background service failed to start")
+            showError(text("Dotii 管理中心未能启动", "Dotii Management Center failed to start"), detail: "\(error.localizedDescription)\n\n\(text("日志", "Log"))：\(logURL.path)")
         }
     }
 
@@ -217,17 +264,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                    let parentPID = payload["parent_pid"] as? Int,
                    parentPID == ProcessInfo.processInfo.processIdentifier {
                     DispatchQueue.main.async {
-                        self?.restartAttempts = 0
-                        self?.statusMenuItem?.title = "管理中心在线"
+                        guard let self, self.bridgeProcess === process, !self.shuttingDown else { return }
+                        self.restartAttempts = 0
+                        self.setStatus("管理中心在线", "Management Center Online")
                     }
                     return
                 }
                 Thread.sleep(forTimeInterval: 0.25)
             }
             DispatchQueue.main.async {
-                guard let self, !self.shuttingDown else { return }
-                self.statusMenuItem?.title = "后台服务未就绪"
-                self.showError("\(appName) 未就绪", detail: "请查看运行日志：\n\(self.logURL.path)")
+                guard let self, let process, !self.shuttingDown, self.bridgeProcess === process else { return }
+                self.setStatus("后台服务未就绪", "Background service is not ready")
+                self.showError(text("Dotii 管理中心未就绪", "Dotii Management Center is not ready"), detail: "\(text("请查看运行日志", "Please view the log"))：\n\(self.logURL.path)")
             }
         }
     }
@@ -238,12 +286,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         try? logHandle?.close()
         logHandle = nil
         guard !shuttingDown else { return }
-        statusMenuItem?.title = "后台服务已停止"
+        setStatus("后台服务已停止", "Background service stopped")
         if restartAttempts < 3 {
             restartAttempts += 1
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in self?.launchBridge() }
         } else {
-            showError("后台服务反复退出", detail: "请查看运行日志：\n\(logURL.path)")
+            showError(text("后台服务反复退出", "Background service keeps stopping"), detail: "\(text("请查看运行日志", "Please view the log"))：\n\(logURL.path)")
         }
     }
 
@@ -265,7 +313,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             loginMenuItem?.isEnabled = false
             return
         }
-        loginMenuItem?.state = SMAppService.mainApp.status == .enabled ? .on : .off
+        let status = SMAppService.mainApp.status
+        loginMenuItem?.state = status == .enabled ? .on : status == .requiresApproval ? .mixed : .off
+        loginMenuItem?.title = status == .requiresApproval
+            ? text("登录时启动（待系统批准）", "Launch at Login (Approval Required)")
+            : text("登录时启动", "Launch at Login")
     }
 
     @objc private func openDashboard() { NSWorkspace.shared.open(dashboardURL) }
@@ -281,10 +333,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard #available(macOS 13.0, *) else { return }
         do {
             let service = SMAppService.mainApp
+            if service.status == .requiresApproval {
+                SMAppService.openSystemSettingsLoginItems()
+                return
+            }
             if service.status == .enabled { try service.unregister() } else { try service.register() }
             refreshLoginItemState()
+            if service.status == .requiresApproval { SMAppService.openSystemSettingsLoginItems() }
         } catch {
-            showError("无法更新登录启动", detail: error.localizedDescription)
+            showError(text("无法更新登录启动", "Could not update Launch at Login"), detail: error.localizedDescription)
         }
     }
 
@@ -298,6 +355,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.messageText = message
         alert.informativeText = detail
         alert.alertStyle = .warning
+        alert.addButton(withTitle: text("好", "OK"))
         alert.runModal()
     }
 }

@@ -24,6 +24,7 @@ class WindowsPlatformAdapterTests(unittest.TestCase):
         self.assertTrue(adapter.bluetooth_available)
         self.assertTrue(adapter.bluetooth_pair_on_connect)
         self.assertTrue(adapter.serial_flash_available)
+        self.assertFalse(adapter.serial_data_dtr_on_open)
 
     def test_runtime_folder_keeps_existing_windows_location(self) -> None:
         with temporary_directory() as temporary:
@@ -97,6 +98,7 @@ class MacOSPlatformAdapterTests(unittest.TestCase):
         self.assertTrue(adapter.bluetooth_available)
         self.assertFalse(adapter.bluetooth_pair_on_connect)
         self.assertTrue(adapter.serial_flash_available)
+        self.assertTrue(adapter.serial_data_dtr_on_open)
         self.assertFalse(adapter.startup_enabled())
 
     def test_packaged_login_item_uses_native_host_cli(self) -> None:

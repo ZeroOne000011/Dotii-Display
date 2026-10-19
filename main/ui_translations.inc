@@ -2,7 +2,7 @@
 {"已清除，正在重新启动", "Reset done. Restarting"},
 {"继续按住以确认", "Keep holding to confirm"},
 {"长按 1.2 秒，清除配网信息", "Hold 1.2s to reset network"},
-{"额度重置", "Quota reset"},
+{"额度重置", "Reset"},
 {"周剩余", "Weekly left"},
 {"工作中", "Working"},
 {"近7日 Token", "7d Token"},

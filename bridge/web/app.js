@@ -676,11 +676,6 @@ function renderBambu(bambu = {}, config = {}, enabled = true) {
   camera.hidden = !bambu.camera_available;
   byId("bambu-camera-empty").hidden = Boolean(bambu.camera_available);
   if (bambu.camera_available) camera.src = `/api/v1/admin/bambu/camera.jpg?v=${encodeURIComponent(bambu.camera_revision || Date.now())}`;
-  const action = bambu.status === "paused" ? "resume" : "pause";
-  byId("bambu-pause").dataset.action = action;
-  byId("bambu-pause").textContent = action === "resume" ? t("继续") : t("暂停");
-  byId("bambu-pause").disabled = !connected || !["printing", "paused"].includes(bambu.status);
-  byId("bambu-stop").disabled = !connected || !["printing", "paused", "preparing"].includes(bambu.status);
   const error = !configured
     ? ""
     : !connected && bambu.last_error
@@ -1247,16 +1242,6 @@ async function reconnectBambu() {
   } catch (error) { showToast(error.message); }
 }
 
-async function commandBambu(action) {
-  if (action === "stop" && !window.confirm(t("确定要停止当前打印吗？该操作无法撤销。"))) return;
-  try {
-    const response = await fetch("/api/v1/admin/bambu/command", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({action})});
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
-    showToast(action === "stop" ? t("停止指令已发送") : action === "resume" ? t("继续指令已发送") : t("暂停指令已发送"));
-  } catch (error) { showToast(error.message); }
-}
-
 async function refreshOverview({ announce = false } = {}) {
   if (state.busy) return;
   state.busy = true;
@@ -1774,8 +1759,6 @@ byId("dotii-follow-live").addEventListener("click", () => {
 });
 byId("bambu-form").addEventListener("submit", saveBambu);
 byId("bambu-reconnect").addEventListener("click", reconnectBambu);
-byId("bambu-pause").addEventListener("click", (event) => commandBambu(event.currentTarget.dataset.action || "pause"));
-byId("bambu-stop").addEventListener("click", () => commandBambu("stop"));
 function openBambuSettings() {
   byId("bambu-form").scrollIntoView({ block: "start" });
   byId("bambu-host").focus({ preventScroll: true });

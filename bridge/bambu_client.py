@@ -656,6 +656,11 @@ class BambuService:
         with self._lock:
             return self._camera_rgb565
 
+    def get_camera_frame(self) -> tuple[int, bytes]:
+        """Pin one publication's revision and immutable pixels for USB."""
+        with self._lock:
+            return self._camera_revision, self._camera_rgb565
+
     def snapshot(self) -> dict[str, Any]:
         config = self.config_store.public()
         enabled = self._enabled()

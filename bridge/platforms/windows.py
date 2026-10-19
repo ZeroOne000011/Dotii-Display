@@ -52,6 +52,7 @@ class WindowsPlatformAdapter:
     bluetooth_available = True
     bluetooth_pair_on_connect = True
     serial_flash_available = True
+    serial_data_dtr_on_open = False
 
     def runtime_folder(self) -> Path:
         local_app_data = os.environ.get("LOCALAPPDATA")

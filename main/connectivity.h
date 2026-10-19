@@ -15,4 +15,4 @@ void connectivity_get_ip(char *buffer, size_t buffer_size);
 void connectivity_get_bridge_summary(char *buffer, size_t buffer_size);
 const uint8_t *connectivity_custom_image_data(uint32_t revision);
 const uint8_t *connectivity_bambu_camera_data(uint32_t revision);
-bool connectivity_bambu_command(const char *action);
+bool connectivity_copy_bambu_camera(uint32_t revision, uint8_t *destination, size_t size);

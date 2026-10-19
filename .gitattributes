@@ -10,3 +10,6 @@
 *.zip binary
 *.exe binary
 *.dll binary
+
+# Keep the vendored zlib header byte-identical to its locked checksum.
+/managed_components/espressif__zlib/zlib/zconf.h text eol=lf

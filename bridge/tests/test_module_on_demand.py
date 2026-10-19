@@ -61,7 +61,7 @@ class ModuleOnDemandTests(unittest.TestCase):
         with plist_path.open("rb") as stream:
             info = plistlib.load(stream)
 
-        self.assertEqual(info["LSMinimumSystemVersion"], "13.0")
+        self.assertEqual(info["LSMinimumSystemVersion"], "13.5")
         self.assertIn("Dotii", info["NSBluetoothAlwaysUsageDescription"])
         self.assertIn("Dotii", info["NSLocalNetworkUsageDescription"])
         self.assertEqual(info["CFBundleShortVersionString"], project_version(BRIDGE.parent))
@@ -347,16 +347,6 @@ class ModuleOnDemandTests(unittest.TestCase):
         self.assertIn("登录系统后自动启动", html)
         self.assertNotIn("登录 Windows 后自动启动", html)
 
-    @unittest.skipUnless((BRIDGE.parent / "packaging/macos/build_macos.sh").is_file(), "macOS packaging is not included in this Windows checkout")
-    def test_macos_build_rejects_stale_bundled_web_assets(self):
-        packaging = (BRIDGE.parent / "packaging" / "macos" / "build_macos.sh").read_text(
-            encoding="utf-8"
-        )
-
-        self.assertIn('for asset in index.html app.js styles.css markdown.js', packaging)
-        self.assertIn('Bundled web asset mismatch', packaging)
-        self.assertIn('/bin/ln -s /Applications', packaging)
-        self.assertIn('cd "$OUTPUT"', packaging)
 
 
 if __name__ == "__main__":

@@ -18,6 +18,7 @@ FFMPEG_ARCHIVE="ffmpeg-$FFMPEG_VERSION.tar.xz"
 }
 
 mkdir -p "$DOWNLOADS"
+export npm_config_cache="$ROOT/.codex/npm-cache"
 rm -rf "$BUILD" "$OUTPUT"
 mkdir -p "$BUILD" "$OUTPUT/licenses"
 

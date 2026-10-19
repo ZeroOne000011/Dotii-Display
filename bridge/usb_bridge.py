@@ -13,6 +13,7 @@ import threading
 import time
 import zlib
 from collections import deque
+from platforms import current_platform
 
 MAGIC = b"DTU1"
 MAX_FRAME = 2 * 1024 * 1024
@@ -67,8 +68,9 @@ class FrameDecoder:
 
 
 class UsbBridge:
-    def __init__(self, server):
+    def __init__(self, server, platform_adapter=None):
         self.server = server
+        self.platform = platform_adapter or current_platform()
         self.lock = threading.RLock()
         self.flash_lock = threading.Lock()
         self.stop_event = threading.Event()
@@ -80,6 +82,7 @@ class UsbBridge:
         self.seq = 0
         self.decoder = FrameDecoder()
         self.jobs = deque()
+        self.command_result = None
         self.state = {"state": "disconnected", "port": "", "device_id": "", "firmware": "", "last_sync": 0, "wifi": False, "wifi_bridge": False, "detail": "", "provision_state": "idle"}
 
     def snapshot(self):
@@ -100,7 +103,8 @@ class UsbBridge:
             self.worker.join(timeout=8)
 
     def pause(self):
-        self.paused.set()
+        with self.lock:
+            self.paused.set()
         if not self.released.wait(8):
             self.paused.clear()
             raise ValueError("USB connection is busy; retry firmware update")
@@ -132,10 +136,20 @@ class UsbBridge:
             for item in self.decoder.feed(self.serial.read(max(1, min(self.serial.in_waiting, 65536)))):
                 if item.get("event") == "bambu_command":
                     # Never replay a command after a disconnect or retry it automatically.
+                    command_id = item.get("command_id")
+                    identified = type(command_id) is int and 0 < command_id <= 0x7FFFFFFF
+                    if identified and self.command_result and self.command_result["command_id"] == command_id:
+                        continue
+                    action = item.get("action")
+                    accepted = False
                     try:
-                        self.server.bambu.command(item.get("action"))
+                        if isinstance(action, str) and action in {"pause", "resume", "stop"}:
+                            result = self.server.bambu.command(action)
+                            accepted = isinstance(result, dict) and result.get("accepted") is True
                     except (OSError, ValueError):
                         pass
+                    if identified:
+                        self.command_result = {"command_id": command_id, "action": action if isinstance(action, str) else "", "ok": accepted}
                 elif item.get("id") == seq:
                     reply = item
             # A control event can share one USB read with the ACK. Consume all
@@ -154,11 +168,13 @@ class UsbBridge:
 
     def _sync(self):
         snapshot = self.server.snapshot()
-        reply = self._exchange("snapshot", snapshot=snapshot, epoch=int(time.time()), **self.server.connections.device())
+        reply = self._exchange("snapshot", snapshot=snapshot, epoch=int(time.time()),
+                               bambu_command_result=self.command_result, **self.server.connections.device())
         self.update(state="connected", last_sync=int(time.time()), wifi=reply.get("wifi", False), wifi_bridge=reply.get("wifi_bridge", False),
                     ssid=reply.get("ssid", ""), device_language=reply.get("language"), device_mode=reply.get("mode"),
                     uptime=reply.get("uptime", 0), reset_reason=reply.get("reset_reason"), free_internal=reply.get("free_internal"),
-                    custom_revision=reply.get("custom_revision", 0), camera_revision=reply.get("camera_revision", 0))
+                    custom_revision=reply.get("custom_revision", 0), camera_revision=reply.get("camera_revision", 0),
+                    bambu_command_id=reply.get("bambu_command_id", 0), bambu_command_state=reply.get("bambu_command_state", 0))
         return snapshot
 
     def _run(self):
@@ -174,7 +190,9 @@ class UsbBridge:
                 self.stop_event.wait(.2)
                 continue
             try:
-                ports = [p for p in list_ports.comports() if p.vid == 0x303A and p.pid == 0x1001]
+                ports = [p for p in list_ports.comports()
+                         if p.vid == 0x303A and p.pid == 0x1001
+                         and self.platform.valid_serial_port(p.device)]
                 settings = self.server.connections.read()
                 if settings["port"]:
                     ports = [p for p in ports if p.device == settings["port"]]
@@ -186,17 +204,26 @@ class UsbBridge:
                     self.update(state="select_device", detail="multiple_usb_devices")
                     self.stop_event.wait(2)
                     continue
-                self.released.clear()
-                # Prevent DTR/RTS transitions from resetting the running device.
+                # Pair the maintenance check and ownership transition with
+                # pause(), so a flash cannot race a newly opened data session.
+                with self.lock:
+                    if self.paused.is_set():
+                        continue
+                    self.released.clear()
+                # The platform sets the safe initial DTR state. On macOS it
+                # must stay asserted until open() has released RTS.
                 connection = serial.Serial(port=None, baudrate=115200, timeout=.1, write_timeout=3)
-                connection.dtr = False
+                connection.dtr = self.platform.serial_data_dtr_on_open
                 connection.rts = False
                 connection.port = ports[0].device
-                connection.open()
                 self.serial = connection
+                connection.open()
+                if self.platform.serial_data_dtr_on_open:
+                    connection.dtr = False
                 self.decoder = FrameDecoder()
+                self.command_result = None
                 self.update(state="connecting", port=ports[0].device, detail="")
-                reply = self._exchange("hello", **self.server.connections.device())
+                reply = self._exchange("hello", bambu_command_results=True, **self.server.connections.device())
                 device_id = reply.get("device_id", "")
                 if not device_id or reply.get("product") != "Dotii" or reply.get("protocol") != 1:
                     raise ValueError("unsupported_device")
@@ -225,7 +252,10 @@ class UsbBridge:
                         ):
                             if available and revisions.get(kind) != revision:
                                 try:
-                                    body = self.server.assets.read_render() if kind == "custom" else self.server.bambu.get_camera_rgb565()
+                                    if kind == "custom":
+                                        body = self.server.assets.read_render()
+                                    else:
+                                        revision, body = self.server.bambu.get_camera_frame()
                                     if body:
                                         self._image(kind, revision, body)
                                         revisions[kind] = revision
@@ -245,6 +275,7 @@ class UsbBridge:
                     self.serial.close()
                     self.serial = None
                 self.released.set()
+                self.command_result = None
                 with self.lock:
                     self.jobs.clear()
             self.stop_event.wait(2)

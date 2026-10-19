@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+cd "$ROOT"
 PYTHON_ROOT="$ROOT/.codex/macos-python"
 if [[ ! -x "$PYTHON_ROOT/bin/python3" ]]; then
   PYTHON_ROOT="$ROOT/.codex/macos-env"
@@ -11,7 +12,7 @@ PYINSTALLER="$PYTHON_ROOT/bin/pyinstaller"
 WORK="$ROOT/.codex/macos-build"
 OUTPUT="$ROOT/.codex/macos-output"
 DERIVED="$WORK/DerivedData"
-TOOLS_SOURCE=""
+TOOLS_SOURCE="$ROOT/.codex/macos-tools"
 SIGN_IDENTITY="-"
 NOTARY_PROFILE=""
 CREATE_DMG=0
@@ -30,6 +31,7 @@ done
   echo "Missing .codex/macos-python or fallback .codex/macos-env build environment" >&2
   exit 1
 }
+[[ -d "$TOOLS_SOURCE" ]] || { echo "Prepare macOS tools or pass --tools-dir" >&2; exit 1; }
 
 VERSION="$($PYTHON -c 'import re,pathlib; text=pathlib.Path("CMakeLists.txt").read_text(); print(re.search(r"PROJECT_VER\s+\"([^\"]+)", text).group(1))')"
 PLIST_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$ROOT/packaging/macos/Info.plist")"
@@ -40,9 +42,20 @@ PLIST_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' 
 
 rm -rf "$WORK" "$OUTPUT"
 mkdir -p "$WORK/pyinstaller-dist" "$WORK/pyinstaller-work" "$OUTPUT"
+# Never leave a failed or partially signed candidate in the output directory.
+cleanup_failed_candidate() {
+  result=$?
+  if [[ "$result" -ne 0 ]]; then
+    rm -rf "$OUTPUT" "$WORK/dmg-root"
+  fi
+}
+trap cleanup_failed_candidate EXIT
 export PYINSTALLER_CONFIG_DIR="$WORK/pyinstaller-cache"
+export TMPDIR="$WORK/tmp"
+export CLANG_MODULE_CACHE_PATH="$WORK/clang-cache"
+export SWIFT_MODULECACHE_PATH="$WORK/swift-cache"
+mkdir -p "$TMPDIR"
 
-cd "$ROOT"
 "$PYINSTALLER" --noconfirm --clean \
   --distpath "$WORK/pyinstaller-dist" \
   --workpath "$WORK/pyinstaller-work" \
@@ -63,21 +76,22 @@ APP="$OUTPUT/DotiiManagementCenter-$VERSION.app"
 /usr/bin/ditto "$WORK/pyinstaller-dist/DotiiBridge" "$APP/Contents/Resources/DotiiBridgeRuntime"
 /bin/chmod 755 "$APP/Contents/Resources/DotiiBridgeRuntime/DotiiBridge"
 
-BUNDLED_WEB="$APP/Contents/Resources/DotiiBridgeRuntime/_internal/web"
-for asset in index.html app.js styles.css markdown.js i18n.js translations.json; do
-  /usr/bin/cmp -s "$ROOT/bridge/web/$asset" "$BUNDLED_WEB/$asset" || {
-    echo "Bundled web asset mismatch: $asset" >&2
-    exit 1
-  }
-done
+mkdir -p "$APP/Contents/Resources/tools"
+/usr/bin/ditto "$TOOLS_SOURCE" "$APP/Contents/Resources/tools"
 
-if [[ -n "$TOOLS_SOURCE" ]]; then
-  [[ -d "$TOOLS_SOURCE" ]] || { echo "Tools directory not found: $TOOLS_SOURCE" >&2; exit 1; }
-  mkdir -p "$APP/Contents/Resources/tools"
-  /usr/bin/ditto "$TOOLS_SOURCE" "$APP/Contents/Resources/tools"
-fi
+# Dotii only reads App Server account/thread APIs and never starts agent turns
+# or shell tools. The optional Codex zsh binary targets macOS 15; omit it so
+# this read-only integration keeps the Node runtime's macOS 13.5 minimum.
+rm -rf "$APP/Contents/Resources/tools/codex-cli/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex-resources/zsh"
 
 "$PYTHON" "$ROOT/packaging/macos/collect_python_licenses.py" "$APP/Contents/Resources/licenses"
+
+for locale in en zh_CN; do
+  mkdir -p "$APP/Contents/Resources/$locale.lproj"
+  cp "$ROOT/packaging/macos/$locale.lproj/InfoPlist.strings" "$APP/Contents/Resources/$locale.lproj/InfoPlist.strings"
+done
+
+"$PYTHON" -B "$ROOT/packaging/macos/verify_bundle.py" "$APP"
 
 /usr/bin/strip -S "$APP/Contents/MacOS/DotiiManagementCenter"
 

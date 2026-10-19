@@ -14,6 +14,9 @@ URL="https://github.com/astral-sh/python-build-standalone/releases/download/2026
 }
 
 mkdir -p "$DOWNLOADS"
+export TMPDIR="$ROOT/.codex/python-tmp"
+export PYTHONPYCACHEPREFIX="$ROOT/.codex/pycache"
+mkdir -p "$TMPDIR"
 curl --fail --location --retry 3 "$URL" --output "$DOWNLOADS/$ARCHIVE"
 ACTUAL="$(shasum -a 256 "$DOWNLOADS/$ARCHIVE" | awk '{print $1}')"
 [[ "$ACTUAL" == "$SHA256" ]] || { echo "Python SHA-256 verification failed" >&2; exit 1; }

@@ -51,6 +51,9 @@ class MacOSPlatformAdapter:
     bluetooth_available = True
     bluetooth_pair_on_connect = False
     serial_flash_available = True
+    # macOS/pyserial applies DTR before RTS. Asserting DTR first avoids
+    # passing through DTR=0, RTS=1, which resets USB Serial/JTAG devices.
+    serial_data_dtr_on_open = True
 
     def runtime_folder(self) -> Path:
         testing_override = os.environ.get("DOTII_RUNTIME_DIR")

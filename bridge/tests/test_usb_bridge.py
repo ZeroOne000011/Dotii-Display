@@ -12,6 +12,8 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from usb_bridge import FrameDecoder, UsbBridge, encode_frame, MAX_FRAME
 from connection_settings import ConnectionSettings
+from platforms.macos import MacOSPlatformAdapter
+from platforms.windows import WindowsPlatformAdapter
 
 
 class UsbProtocolTests(unittest.TestCase):
@@ -67,6 +69,45 @@ class UsbProtocolTests(unittest.TestCase):
         self.assertTrue(bridge._exchange("snapshot")["ok"])
         server.bambu.command.assert_called_once_with("pause")
 
+    def test_control_rejection_is_returned_in_next_snapshot_without_exposing_error(self):
+        server = SimpleNamespace(token="local-test-token", bambu=mock.Mock(), connections=mock.Mock())
+        server.bambu.command.side_effect = ValueError("private diagnostic")
+        server.snapshot = lambda: {}
+        server.connections.device.return_value = {}
+        bridge = UsbBridge(server)
+        incoming = encode_frame({"event":"bambu_command","action":"pause","command_id":7})
+        incoming += encode_frame({"id":1,"ok":True})
+        bridge.serial = mock.Mock(in_waiting=len(incoming))
+        bridge.serial.read.side_effect = [incoming, encode_frame({"id":2,"ok":True})]
+        bridge._exchange("snapshot")
+        bridge._sync()
+        sent = FrameDecoder().feed(bridge.serial.write.call_args.args[0])[0]
+        self.assertEqual(sent["bambu_command_result"], {"command_id":7,"action":"pause","ok":False})
+        self.assertNotIn("private diagnostic", json.dumps(sent))
+
+    def test_identified_control_event_is_not_executed_twice(self):
+        server = SimpleNamespace(token="local-test-token", bambu=mock.Mock())
+        server.bambu.command.return_value = {"accepted": True}
+        bridge = UsbBridge(server)
+        event = encode_frame({"event":"bambu_command","action":"stop","command_id":8})
+        incoming = event + event + encode_frame({"id":1,"ok":True})
+        bridge.serial = mock.Mock(in_waiting=len(incoming))
+        bridge.serial.read.return_value = incoming
+        bridge._exchange("snapshot")
+        server.bambu.command.assert_called_once_with("stop")
+        self.assertEqual(bridge.command_result, {"command_id":8,"action":"stop","ok":True})
+
+    def test_malformed_control_does_not_crash_or_control_the_printer(self):
+        server = SimpleNamespace(token="local-test-token", bambu=mock.Mock())
+        bridge = UsbBridge(server)
+        incoming = encode_frame({"event":"bambu_command","action":{},"command_id":9})
+        incoming += encode_frame({"id":1,"ok":True})
+        bridge.serial = mock.Mock(in_waiting=len(incoming))
+        bridge.serial.read.return_value = incoming
+        bridge._exchange("snapshot")
+        server.bambu.command.assert_not_called()
+        self.assertFalse(bridge.command_result["ok"])
+
     def test_provision_requires_active_usb_and_valid_utf8_lengths(self):
         bridge = UsbBridge(SimpleNamespace())
         with self.assertRaises(ValueError): bridge.configure("网络", "password")
@@ -76,6 +117,53 @@ class UsbProtocolTests(unittest.TestCase):
         self.assertEqual(bridge.snapshot()["provision_state"], "writing")
         self.assertNotIn("password", json.dumps(bridge.snapshot()))
         with self.assertRaises(ValueError): bridge.configure("network", "password")
+
+    def test_platform_port_filter_and_control_lines_before_open(self):
+        for adapter, valid, invalid in (
+            (MacOSPlatformAdapter(), "/dev/cu.usbmodem101", "/dev/tty.usbmodem101"),
+            (WindowsPlatformAdapter(), "COM6", "/dev/cu.usbmodem101"),
+        ):
+            with self.subTest(platform=adapter.name):
+                server = SimpleNamespace(connections=mock.Mock())
+                server.connections.read.return_value = {"port": "", "device_id": ""}
+                server.connections.device.return_value = {}
+                bridge = UsbBridge(server, platform_adapter=adapter)
+                ports = [SimpleNamespace(device=p, vid=0x303A, pid=0x1001) for p in (invalid, valid)]
+                ports.append(SimpleNamespace(device=valid + "2", vid=0x1234, pid=0x1001))
+                opened = []
+                connection = SimpleNamespace(dtr=True, rts=True, port=None)
+                connection.open = lambda: opened.append((connection.port, connection.dtr, connection.rts))
+                connection.close = mock.Mock()
+
+                def disconnected(*args, **kwargs):
+                    bridge.stop_event.set()
+                    raise OSError("device removed")
+
+                with mock.patch("serial.tools.list_ports.comports", return_value=ports), \
+                     mock.patch("serial.Serial", return_value=connection), \
+                     mock.patch.object(bridge, "_exchange", side_effect=disconnected):
+                    bridge._run()
+                self.assertEqual(opened, [(valid, adapter.serial_data_dtr_on_open, False)])
+                self.assertFalse(connection.dtr)
+                connection.close.assert_called_once()
+                self.assertTrue(bridge.released.is_set())
+                self.assertEqual(bridge.snapshot()["detail"], "usb_connection_failed")
+
+    def test_pause_during_port_selection_cannot_open_serial(self):
+        server = SimpleNamespace(connections=mock.Mock())
+        server.connections.read.return_value = {"port": "", "device_id": ""}
+        bridge = UsbBridge(server, platform_adapter=MacOSPlatformAdapter())
+
+        def pause_during_selection():
+            bridge.pause()
+            bridge.stop_event.set()
+            return [SimpleNamespace(device="/dev/cu.usbmodem101", vid=0x303A, pid=0x1001)]
+
+        with mock.patch("serial.tools.list_ports.comports", side_effect=pause_during_selection), \
+             mock.patch("serial.Serial") as serial_open:
+            bridge._run()
+        serial_open.assert_not_called()
+        self.assertTrue(bridge.released.is_set())
 
 
 class ConnectionSettingsTests(unittest.TestCase):

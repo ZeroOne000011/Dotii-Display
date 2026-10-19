@@ -1,0 +1,3 @@
+"CFBundleDisplayName" = "Dotii Management Center";
+"NSBluetoothAlwaysUsageDescription" = "Discover Dotii and securely send Wi-Fi and Management Center connection settings to the device.";
+"NSLocalNetworkUsageDescription" = "Connect to Dotii and Bambu Lab printers on your local network and provide Management Center data to Dotii.";

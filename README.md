@@ -6,7 +6,7 @@ Dotii 是一套由 ESP32-S3 圆形 AMOLED 桌面屏与 Windows/macOS 端“Dotii
 
 [Windows 下载](https://github.com/ZeroOne000011/Dotii-Display/releases/tag/v1.1.1) · [macOS 下载（预览版）](https://github.com/ZeroOne000011/Dotii-Display/releases/tag/v1.1.1-macos-preview.1) · [MakerWorld 模型与打印文件](https://makerworld.com.cn/zh/models/2918764-dotii-zhuo-mian-jiao-hu-ping#profileId-3421401) · [开发指南](开发指南.md)
 
-当前源码版本为 **1.2**，1.2 正式安装包尚未发布；以上下载入口对应已发布的 **Windows 1.1.1** 和 **macOS 1.1.1 预览版**。macOS 1.2 仍在适配与验证中。
+当前源码版本为 **1.2**，1.2 正式安装包尚未发布；以上下载入口对应已发布的 **Windows 1.1.1** 和 **macOS 1.1.1 预览版**。macOS 1.2 已完成当前 Apple Silicon Mac 的本机功能验收；共用改动仍待 Windows 回归，跨电脑、最低系统与正式分发验证尚未完成。
 
 1.2 增加管理中心与圆屏的中英文同步切换、USB 配网和 USB 数据同步，以及自动（USB 优先）、仅 USB、仅 Wi-Fi 三种连接方式。语言入口位于“设置 → Dotii 管理中心 → 应用设置 → 语言/Language”。
 
@@ -15,7 +15,7 @@ Dotii 是一套由 ESP32-S3 圆形 AMOLED 桌面屏与 Windows/macOS 端“Dotii
 | 系统 | 支持范围 | 下载内容 | 当前状态 |
 | --- | --- | --- | --- |
 | Windows | Windows 10/11 x64 | `DotiiManagementCenter-1.1.1-portable.zip` | 正式版 |
-| macOS | Apple Silicon、macOS 13 及以上 | `DotiiManagementCenter-macOS-arm64-1.1.1.dmg` | 预览版，未经苹果公证 |
+| macOS | Apple Silicon、macOS 13.5 及以上 | `DotiiManagementCenter-macOS-arm64-1.1.1.dmg` | 预览版，未经苹果公证 |
 
 macOS 预览版目前不支持 Intel Mac。由于尚未经过苹果公证，首次打开时需要在“系统设置 > 隐私与安全性”中手动允许。Windows 和 macOS 安装包均已包含运行所需组件，普通用户无需安装 Python、Node.js、Codex CLI、FFmpeg 或 ESP-IDF。
 
@@ -48,7 +48,7 @@ macOS 预览版目前不支持 Intel Mac。由于尚未经过苹果公证，首�
 
 ## macOS 快速上手
 
-1. 从 [macOS Release](https://github.com/ZeroOne000011/Dotii-Display/releases/tag/v1.1.1-macos-preview.1) 下载 DMG。当前版本仅支持 Apple Silicon Mac 和 macOS 13 及以上。
+1. 从 [macOS Release](https://github.com/ZeroOne000011/Dotii-Display/releases/tag/v1.1.1-macos-preview.1) 下载 DMG。当前版本仅支持 Apple Silicon Mac 和 macOS 13.5 及以上。
 2. 打开 DMG，将 `DotiiManagementCenter-1.1.1.app` 拖到“应用程序”。
 3. 从“应用程序”打开 Dotii 管理中心。如果系统阻止启动，请打开“系统设置 > 隐私与安全性”，在对应提示旁选择“仍要打开”，然后再次确认。
 4. 首次扫描 Dotii 时允许蓝牙权限；连接 Dotii 或 Bambu 时按系统提示允许本地网络权限。
@@ -79,6 +79,10 @@ shasum -a 256 -c DotiiManagementCenter-macOS-arm64-1.1.1.dmg.sha256
 - **自定义页面**：编辑文字、颜色、图片和圆环，保存后同步到 466 × 466 圆屏。
 - **Dotii 表情**：显示待机、眨眼、连接、工作、完成、失败等状态动画。
 - **设备管理**：提供蓝牙配网、重置配网、显示设置、休眠设置、登录自启动和受保护的一键烧录。
+
+Bambu 详情页显示相机画面和文件名，耗材与层数分成两行居中显示；管理中心和设备详情页均不提供暂停、继续或停止打印操作。
+
+Codex“仅显示周剩余”页面的近 7 日 Token 按数量自动使用 `k`（千）、`m`（百万）和 `b`（十亿），保留一位小数；不足一千时显示整数，未获取到用量时显示 `--`。
 
 Codex 与 Bambu 首次运行默认关闭，不会在用户启用前自动安装、登录或连接外部服务。
 
@@ -136,7 +140,7 @@ Windows 日志位于 `%LOCALAPPDATA%\StateDisplay\bridge.log`，macOS 日志位�
 
 - 管理网页和管理 API 只允许本机访问；Dotii 读取数据时需要设备访问令牌。
 - Wi-Fi 密码、Bambu 访问码、设备令牌和运行配置保存在本机用户目录，不应上传到公开仓库。
-- Bambu 数据通过局域网获取。暂停、继续和停止只会在打印机状态允许时开放，并需要用户明确操作。
+- Bambu 数据通过局域网获取；打印操作请使用打印机或 Bambu 官方应用。
 - 常规一键烧录不会擦除 NVS。请勿对未知设备、串口或固件执行烧录。
 - Windows 首次允许局域网访问时可能显示防火墙窗口，程序名称应为“Dotii 管理中心后台服务”。请按实际使用的网络类型授权。
 

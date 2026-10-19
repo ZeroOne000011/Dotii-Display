@@ -1,0 +1,3 @@
+"CFBundleDisplayName" = "Dotii 管理中心";
+"NSBluetoothAlwaysUsageDescription" = "用于发现 Dotii，并向设备安全写入 Wi-Fi 与管理中心连接配置。";
+"NSLocalNetworkUsageDescription" = "用于连接局域网中的 Dotii 与 Bambu Lab 打印机，并向 Dotii 提供管理中心数据。";

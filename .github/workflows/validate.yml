@@ -1,0 +1,69 @@
+name: Validate shared code and platform builds
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  shared-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-15]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.16.0'
+      - run: python -m pip install -r bridge/requirements.txt
+      - run: python -B -m unittest discover -s bridge/tests -v
+      - run: python -X pycache_prefix=.codex/pycache -m compileall -q bridge packaging/macos
+      - run: node --check bridge/web/app.js
+      - run: node --check bridge/web/i18n.js
+      - run: node --check bridge/web/markdown.js
+
+  windows-build-check:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse Windows build scripts without executing them
+        shell: pwsh
+        run: |
+          Get-ChildItem packaging -Recurse -Filter *.ps1 | ForEach-Object {
+            $tokens = $null
+            $parseErrors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$parseErrors) | Out-Null
+            if ($parseErrors) { throw ($parseErrors | Out-String) }
+          }
+
+  macos-arm64-build-check:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: arm64
+      - name: Check platform resources
+        run: |
+          test "$(uname -m)" = arm64
+          bash -n packaging/macos/prepare_python.sh packaging/macos/prepare_tools.sh packaging/macos/build_macos.sh
+          plutil -lint packaging/macos/Info.plist packaging/macos/en.lproj/InfoPlist.strings packaging/macos/zh_CN.lproj/InfoPlist.strings
+      - run: python -m pip install -r packaging/macos/requirements.txt
+      - name: Build shared backend without signing or publishing
+        run: |
+          mkdir -p .codex/tmp
+          export TMPDIR="$PWD/.codex/tmp"
+          export PYINSTALLER_CONFIG_DIR="$PWD/.codex/pyinstaller-cache"
+          pyinstaller --noconfirm --clean --distpath .codex/dist --workpath .codex/pyinstaller-work packaging/macos/DotiiBridge.spec
+      - name: Build native arm64 host
+        run: |
+          xcodebuild -project macos/DotiiManagementCenter/DotiiManagementCenter.xcodeproj -scheme DotiiManagementCenter -configuration Release -derivedDataPath .codex/DerivedData ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO build

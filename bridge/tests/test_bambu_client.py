@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import sys
 import unittest
+import threading
+import zlib
 from pathlib import Path
 
 BRIDGE = Path(__file__).resolve().parents[1]
@@ -59,6 +61,19 @@ class BambuMaterialTests(unittest.TestCase):
 
 
 class BambuProtocolTests(unittest.TestCase):
+    def test_camera_frame_pins_pixels_and_crc_from_the_same_publication(self):
+        service = BambuService.__new__(BambuService)
+        service._lock = threading.RLock()
+        service._camera_rgb565 = b"first-frame"
+        service._camera_revision = zlib.crc32(service._camera_rgb565)
+        first = service.get_camera_frame()
+        with service._lock:
+            service._camera_rgb565 = b"next-frame"
+            service._camera_revision = zlib.crc32(service._camera_rgb565)
+        second = service.get_camera_frame()
+        self.assertEqual(first, (zlib.crc32(b"first-frame"), b"first-frame"))
+        self.assertEqual(second[0], zlib.crc32(second[1]))
+
     def test_unknown_job_state_is_not_offline(self) -> None:
         self.assertEqual(_state_name("FUTURE_STATE"), ("unknown", "未知状态"))
 

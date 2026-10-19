@@ -100,10 +100,6 @@ static lv_obj_t *s_bambu_camera_empty;
 static lv_obj_t *s_bambu_filename;
 static lv_obj_t *s_bambu_filament;
 static lv_obj_t *s_bambu_layer;
-static lv_obj_t *s_bambu_pause;
-static lv_obj_t *s_bambu_pause_icon;
-static lv_obj_t *s_bambu_stop;
-static lv_obj_t *s_bambu_stop_progress;
 static lv_obj_t *s_detail_title;
 static lv_obj_t *s_detail_meta;
 static lv_obj_t *s_user_message;
@@ -170,6 +166,7 @@ static lv_image_dsc_t s_custom_image_dsc;
 static uint32_t s_custom_image_revision;
 static lv_image_dsc_t s_bambu_camera_dsc;
 static uint32_t s_bambu_camera_revision;
+static uint8_t *s_bambu_camera_pixels;
 static char *s_rendered_conversation;
 static codex_task_detail_t *s_detail_task;
 static size_t s_detail_task_index;
@@ -231,6 +228,38 @@ static lv_obj_t *make_label(lv_obj_t *parent, const char *text, const lv_font_t 
     lv_obj_set_style_text_font(label, font, 0);
     lv_obj_set_style_text_color(label, color(text_color), 0);
     return label;
+}
+
+static void size_status_text_box(lv_obj_t *label)
+{
+    lv_obj_t *box = lv_obj_get_parent(label);
+    /* Flex measures untransformed coordinates. Reserve the scaled text and
+       its 2px outline so the dot + text group has balanced visible margins. */
+    lv_obj_set_size(box, (lv_obj_get_width(label) * 282 + 255) / 256 + 4,
+                        (lv_obj_get_height(label) * 282 + 255) / 256 + 4);
+    lv_obj_center(label);
+}
+
+static void status_text_size_event(lv_event_t *event)
+{
+    size_status_text_box(lv_event_get_target(event));
+}
+
+static void fit_status_pill(lv_obj_t *pill, lv_obj_t *label)
+{
+    lv_obj_set_width(pill, LV_SIZE_CONTENT);
+    lv_obj_set_style_min_width(pill, 138, 0);
+    lv_obj_set_style_pad_hor(pill, 6, 0);
+    lv_obj_t *box = lv_obj_create(pill);
+    lv_obj_remove_style_all(box);
+    lv_obj_remove_flag(box, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_parent(label, box);
+    lv_obj_set_size(label, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_style_transform_pivot_x(label, LV_PCT(50), 0);
+    lv_obj_set_style_transform_pivot_y(label, LV_PCT(50), 0);
+    lv_obj_add_event_cb(label, status_text_size_event, LV_EVENT_SIZE_CHANGED, NULL);
+    lv_obj_update_layout(label);
+    size_status_text_box(label);
 }
 
 /* Centering a scaled label by its glyph bounds is unstable because Chinese
@@ -614,11 +643,6 @@ static void refresh_clicked(lv_event_t *event)
     if (lv_event_get_code(event) == LV_EVENT_CLICKED) connectivity_request_refresh();
 }
 
-static void restart_anim_exec(void *object, int32_t value)
-{
-    lv_bar_set_value((lv_obj_t *)object, value, LV_ANIM_OFF);
-}
-
 static void restart_hold_anim_exec(void *object, int32_t value)
 {
     lv_color_t mixed = lv_color_mix(color(0x286348), color(0x173D2D), (uint8_t)value);
@@ -745,6 +769,30 @@ static lv_obj_t *make_metric(lv_obj_t *parent, const char *value, const char *ca
     lv_obj_set_style_transform_scale(caption_label, 282, 0);
     lv_obj_align(caption_label, LV_ALIGN_BOTTOM_MID, 0, 1);
     return value_label;
+}
+
+static void set_weekly_token_text(lv_obj_t *label, bool available, uint32_t tokens)
+{
+    if (!available) {
+        lv_label_set_text(label, "--");
+        return;
+    }
+    if (tokens < 1000) {
+        lv_label_set_text_fmt(label, "%lu", (unsigned long)tokens);
+        return;
+    }
+    static const char *units[] = {"k", "m", "b"};
+    uint64_t divisor = 1000;
+    unsigned unit = 0;
+    /* Promote before rounding would produce 1000.0k or 1000.0m. Keep the
+       numeric part within five characters, including its decimal point. */
+    while (unit < 2 && (uint64_t)tokens * 10 + divisor / 2 >= divisor * 10000) {
+        divisor *= 1000;
+        unit++;
+    }
+    uint32_t tenths = ((uint64_t)tokens * 10 + divisor / 2) / divisor;
+    lv_label_set_text_fmt(label, "%lu.%lu%s", (unsigned long)(tenths / 10),
+                          (unsigned long)(tenths % 10), units[unit]);
 }
 
 static void make_reset_metric(lv_obj_t *parent, int x)
@@ -916,7 +964,7 @@ static void build_main(void)
     lv_obj_set_style_bg_color(s_status_dot, color(COLOR_GREEN), 0);
     lv_obj_set_style_bg_opa(s_status_dot, LV_OPA_COVER, 0);
     s_status = make_label(s_status_pill, ui_tr("工作中"), &s_ui_font, COLOR_GREEN);
-    lv_obj_set_size(s_status, 82, 22);
+    fit_status_pill(s_status_pill, s_status);
     lv_obj_set_style_text_align(s_status, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_transform_scale(s_status, 282, 0);
     lv_obj_set_style_text_outline_stroke_color(s_status, color(COLOR_GREEN), 0);
@@ -1364,37 +1412,6 @@ static void build_detail(void)
     register_page_scroll_target(s_detail, s_detail_chat);
 }
 
-static void bambu_pause_event(lv_event_t *event)
-{
-    if (lv_event_get_code(event) != LV_EVENT_CLICKED) return;
-    connectivity_bambu_command(s_snapshot.bambu_status == BAMBU_STATUS_PAUSED ? "resume" : "pause");
-}
-
-static void bambu_stop_anim_done(lv_anim_t *animation)
-{
-    (void)animation;
-    connectivity_bambu_command("stop");
-    lv_bar_set_value(s_bambu_stop_progress, 0, LV_ANIM_OFF);
-}
-
-static void bambu_stop_event(lv_event_t *event)
-{
-    lv_event_code_t code = lv_event_get_code(event);
-    if (code == LV_EVENT_PRESSED && !lv_obj_has_state(s_bambu_stop, LV_STATE_DISABLED)) {
-        lv_anim_t animation;
-        lv_anim_init(&animation);
-        lv_anim_set_var(&animation, s_bambu_stop_progress);
-        lv_anim_set_values(&animation, 0, 100);
-        lv_anim_set_duration(&animation, 1200);
-        lv_anim_set_exec_cb(&animation, restart_anim_exec);
-        lv_anim_set_completed_cb(&animation, bambu_stop_anim_done);
-        lv_anim_start(&animation);
-    } else if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
-        lv_anim_delete(s_bambu_stop_progress, restart_anim_exec);
-        lv_bar_set_value(s_bambu_stop_progress, 0, LV_ANIM_OFF);
-    }
-}
-
 static lv_obj_t *make_bambu_metric(lv_obj_t *parent, const char *caption, int x)
 {
     lv_obj_t *box = lv_obj_create(parent);
@@ -1471,7 +1488,7 @@ static void build_bambu(void)
     lv_obj_set_style_bg_color(s_bambu_status_dot, color(COLOR_BAMBU), 0);
     lv_obj_set_style_bg_opa(s_bambu_status_dot, LV_OPA_COVER, 0);
     s_bambu_status = make_label(s_bambu_status_pill, ui_tr("离线"), &s_ui_font, COLOR_BAMBU);
-    lv_obj_set_size(s_bambu_status, 82, 22);
+    fit_status_pill(s_bambu_status_pill, s_bambu_status);
     lv_obj_set_style_text_align(s_bambu_status, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_transform_scale(s_bambu_status, 282, 0);
     lv_obj_set_style_text_outline_stroke_color(s_bambu_status, color(COLOR_BAMBU), 0);
@@ -1501,11 +1518,11 @@ static void build_bambu(void)
     lv_obj_align(s_time_bambu_detail, LV_ALIGN_TOP_MID, 0, -34);
     /* The title intentionally extends above the 358 px layout box. Keep it on
      * the full-screen layer so the safe container cannot clip its top edge. */
-    make_centered_title(s_bambu_detail, ui_tr("打印详情"), &ui_font_bambu_semibold_24, 336, 256, 1, 50);
+    make_centered_title(s_bambu_detail, ui_tr("打印详情"), &ui_font_bambu_semibold_24, 336, 256, 1, 58);
 
     lv_obj_t *camera_box = lv_obj_create(safe);
     lv_obj_set_size(camera_box, 350, 197);
-    lv_obj_align(camera_box, LV_ALIGN_TOP_MID, 0, 34);
+    lv_obj_align(camera_box, LV_ALIGN_TOP_MID, 0, 42);
     lv_obj_set_style_radius(camera_box, 18, 0);
     lv_obj_set_style_clip_corner(camera_box, true, 0);
     lv_obj_set_style_bg_color(camera_box, color(0x0A0F0D), 0);
@@ -1520,54 +1537,37 @@ static void build_bambu(void)
     lv_obj_add_flag(s_bambu_camera, LV_OBJ_FLAG_HIDDEN);
     s_bambu_camera_empty = make_label(camera_box, ui_tr("相机画面暂不可用"), &s_ui_font, COLOR_MUTED);
     lv_obj_set_style_transform_scale(s_bambu_camera_empty, 282, 0);
+    lv_obj_set_style_transform_pivot_x(s_bambu_camera_empty, lv_pct(50), 0);
+    lv_obj_set_style_transform_pivot_y(s_bambu_camera_empty, lv_pct(50), 0);
     lv_obj_center(s_bambu_camera_empty);
 
-    s_bambu_filename = make_label(safe, "--", &ui_font_detail_20, COLOR_TEXT);
-    lv_obj_set_size(s_bambu_filename, 320, 28);
+    s_bambu_filename = make_label(s_bambu_detail, "--", &ui_font_detail_20, COLOR_TEXT);
+    lv_obj_set_size(s_bambu_filename, 300, 32);
+    lv_obj_set_style_transform_scale(s_bambu_filename, 307, 0);
+    lv_obj_set_style_transform_pivot_x(s_bambu_filename, lv_pct(50), 0);
+    lv_obj_set_style_transform_pivot_y(s_bambu_filename, lv_pct(50), 0);
     lv_label_set_long_mode(s_bambu_filename, LV_LABEL_LONG_DOT);
     lv_obj_set_style_text_align(s_bambu_filename, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(s_bambu_filename, LV_ALIGN_TOP_MID, 0, 239);
-    s_bambu_filament = make_label(safe, ui_tr("耗材 --"), &s_ui_font, COLOR_MUTED);
+    lv_obj_align(s_bambu_filename, LV_ALIGN_TOP_MID, 0, 310);
+
+    /* Keep lower rows on the screen layer: the centered safe box ends at
+       y=412 and would clip their descenders after moving the content down. */
+    s_bambu_filament = make_label(s_bambu_detail, ui_tr("耗材 --"), &s_ui_font, COLOR_MUTED);
+    lv_obj_set_size(s_bambu_filament, 300, 28);
+    lv_label_set_long_mode(s_bambu_filament, LV_LABEL_LONG_DOT);
+    lv_obj_set_style_text_align(s_bambu_filament, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_transform_scale(s_bambu_filament, 282, 0);
-    lv_obj_align(s_bambu_filament, LV_ALIGN_TOP_LEFT, 18, 270);
-    s_bambu_layer = make_label(safe, ui_tr("层数 --"), &s_ui_font, COLOR_MUTED);
+    lv_obj_set_style_transform_pivot_x(s_bambu_filament, lv_pct(50), 0);
+    lv_obj_set_style_transform_pivot_y(s_bambu_filament, lv_pct(50), 0);
+    lv_obj_align(s_bambu_filament, LV_ALIGN_TOP_MID, 0, 349);
+    s_bambu_layer = make_label(s_bambu_detail, ui_tr("层数 --"), &s_ui_font, COLOR_MUTED);
+    lv_obj_set_size(s_bambu_layer, 248, 28);
+    lv_label_set_long_mode(s_bambu_layer, LV_LABEL_LONG_DOT);
+    lv_obj_set_style_text_align(s_bambu_layer, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_transform_scale(s_bambu_layer, 282, 0);
-    lv_obj_align(s_bambu_layer, LV_ALIGN_TOP_RIGHT, -18, 270);
-
-    /* The actions intentionally sit below the layout box. Parent them to the
-     * screen while preserving their existing absolute positions. */
-    s_bambu_pause = lv_button_create(s_bambu_detail);
-    lv_obj_set_size(s_bambu_pause, 70, 70);
-    lv_obj_align(s_bambu_pause, LV_ALIGN_BOTTOM_LEFT, 144, -30);
-    lv_obj_set_style_radius(s_bambu_pause, 20, 0);
-    lv_obj_set_style_bg_color(s_bambu_pause, color(0x082913), 0);
-    lv_obj_set_style_border_width(s_bambu_pause, 1, 0);
-    lv_obj_set_style_border_color(s_bambu_pause, color(COLOR_BAMBU), 0);
-    s_bambu_pause_icon = make_label(s_bambu_pause, LV_SYMBOL_PAUSE,
-                                    &lv_font_montserrat_32, COLOR_BAMBU);
-    lv_obj_center(s_bambu_pause_icon);
-    lv_obj_add_event_cb(s_bambu_pause, bambu_pause_event, LV_EVENT_CLICKED, NULL);
-
-    s_bambu_stop = lv_button_create(s_bambu_detail);
-    lv_obj_set_size(s_bambu_stop, 70, 70);
-    lv_obj_align(s_bambu_stop, LV_ALIGN_BOTTOM_RIGHT, -144, -30);
-    lv_obj_set_style_radius(s_bambu_stop, 20, 0);
-    lv_obj_set_style_bg_color(s_bambu_stop, color(0x311A19), 0);
-    lv_obj_set_style_border_width(s_bambu_stop, 1, 0);
-    lv_obj_set_style_border_color(s_bambu_stop, color(COLOR_DANGER), 0);
-    s_bambu_stop_progress = lv_bar_create(s_bambu_stop);
-    lv_obj_set_size(s_bambu_stop_progress, 66, 66);
-    lv_obj_center(s_bambu_stop_progress);
-    lv_obj_set_style_radius(s_bambu_stop_progress, 18, 0);
-    lv_obj_set_style_bg_opa(s_bambu_stop_progress, LV_OPA_TRANSP, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(s_bambu_stop_progress, color(COLOR_DANGER), LV_PART_INDICATOR);
-    lv_obj_set_style_bg_opa(s_bambu_stop_progress, LV_OPA_30, LV_PART_INDICATOR);
-    lv_bar_set_value(s_bambu_stop_progress, 0, LV_ANIM_OFF);
-    lv_obj_t *stop_icon = make_label(s_bambu_stop, LV_SYMBOL_STOP,
-                                     &lv_font_montserrat_32, COLOR_DANGER);
-    lv_obj_center(stop_icon);
-    lv_obj_move_foreground(stop_icon);
-    lv_obj_add_event_cb(s_bambu_stop, bambu_stop_event, LV_EVENT_ALL, NULL);
+    lv_obj_set_style_transform_pivot_x(s_bambu_layer, lv_pct(50), 0);
+    lv_obj_set_style_transform_pivot_y(s_bambu_layer, lv_pct(50), 0);
+    lv_obj_align(s_bambu_layer, LV_ALIGN_TOP_MID, 0, 388);
 }
 
 static void build_custom(void)
@@ -2146,18 +2146,13 @@ static void update_snapshot(const codex_snapshot_t *snapshot)
     else if (snapshot->status == CODEX_STATUS_WAITING) status_color = COLOR_WARNING;
     else if (snapshot->status == CODEX_STATUS_FAILED) status_color = COLOR_DANGER;
     lv_label_set_text(s_status, app_state_status_text(snapshot->status));
-    bool long_status = snapshot->status == CODEX_STATUS_OFFLINE;
-    lv_obj_set_width(s_status_pill, long_status ? 172 : 138);
-    lv_obj_set_width(s_status, long_status ? 116 : 82);
     lv_obj_set_style_text_color(s_status, color(status_color), 0);
     lv_obj_set_style_text_outline_stroke_color(s_status, color(status_color), 0);
     lv_obj_set_style_bg_color(s_status_dot, color(status_color), 0);
     lv_obj_set_style_bg_color(s_status_pill, color(status_color), 0);
     lv_obj_set_style_bg_opa(s_status_pill, LV_OPA_20, 0);
 
-    if (!snapshot->weekly_tokens_available) lv_label_set_text(s_weekly_tokens, "--");
-    else if (snapshot->weekly_tokens >= 1000) lv_label_set_text_fmt(s_weekly_tokens, "%.1fk", snapshot->weekly_tokens / 1000.0);
-    else lv_label_set_text_fmt(s_weekly_tokens, "%lu", (unsigned long)snapshot->weekly_tokens);
+    set_weekly_token_text(s_weekly_tokens, snapshot->weekly_tokens_available, snapshot->weekly_tokens);
     if (snapshot->weekly_available && snapshot->reset_date[0]) {
         const char *space = strchr(snapshot->reset_date, ' ');
         if (space != NULL) {
@@ -2245,37 +2240,32 @@ static void update_snapshot(const codex_snapshot_t *snapshot)
         lv_label_set_text_fmt(s_bambu_layer, ui_tr("层数 %u/%u"),
                               snapshot->bambu_layer_current, snapshot->bambu_layer_total);
     } else lv_label_set_text(s_bambu_layer, ui_tr("层数 --"));
-    lv_label_set_text(s_bambu_pause_icon,
-                      snapshot->bambu_status == BAMBU_STATUS_PAUSED ? LV_SYMBOL_PLAY : LV_SYMBOL_PAUSE);
-    bool can_pause = bambu_online && (snapshot->bambu_status == BAMBU_STATUS_PRINTING ||
-                                      snapshot->bambu_status == BAMBU_STATUS_PAUSED);
-    bool can_stop = bambu_online && snapshot->bambu_commandable &&
-                    (snapshot->bambu_status == BAMBU_STATUS_PRINTING ||
-                     snapshot->bambu_status == BAMBU_STATUS_PAUSED ||
-                     snapshot->bambu_status == BAMBU_STATUS_PREPARING);
-    if (can_pause) lv_obj_remove_state(s_bambu_pause, LV_STATE_DISABLED);
-    else lv_obj_add_state(s_bambu_pause, LV_STATE_DISABLED);
-    if (can_stop) lv_obj_remove_state(s_bambu_stop, LV_STATE_DISABLED);
-    else lv_obj_add_state(s_bambu_stop, LV_STATE_DISABLED);
 
-    const uint8_t *camera = snapshot->bambu_camera_available ?
-        connectivity_bambu_camera_data(snapshot->bambu_camera_revision) : NULL;
-    if (camera != NULL) {
+    if (snapshot->bambu_camera_available) {
         if (s_bambu_camera_revision != snapshot->bambu_camera_revision) {
-            if (s_bambu_camera_revision != 0) lv_image_cache_drop(&s_bambu_camera_dsc);
-            memset(&s_bambu_camera_dsc, 0, sizeof(s_bambu_camera_dsc));
-            s_bambu_camera_dsc.header.magic = LV_IMAGE_HEADER_MAGIC;
-            s_bambu_camera_dsc.header.cf = LV_COLOR_FORMAT_RGB565;
-            s_bambu_camera_dsc.header.w = 320;
-            s_bambu_camera_dsc.header.h = 180;
-            s_bambu_camera_dsc.header.stride = 320 * 2;
-            s_bambu_camera_dsc.data_size = 320 * 180 * 2;
-            s_bambu_camera_dsc.data = camera;
-            lv_image_set_src(s_bambu_camera, &s_bambu_camera_dsc);
-            s_bambu_camera_revision = snapshot->bambu_camera_revision;
+            if (!s_bambu_camera_pixels) s_bambu_camera_pixels = heap_caps_malloc(320 * 180 * 2,
+                                                          MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+            /* LVGL owns this copy. USB/Wi-Fi can then reuse their receive
+               buffers without repainting a frame while it is being written. */
+            if (s_bambu_camera_pixels && connectivity_copy_bambu_camera(
+                    snapshot->bambu_camera_revision, s_bambu_camera_pixels, 320 * 180 * 2)) {
+                if (s_bambu_camera_revision != 0) lv_image_cache_drop(&s_bambu_camera_dsc);
+                memset(&s_bambu_camera_dsc, 0, sizeof(s_bambu_camera_dsc));
+                s_bambu_camera_dsc.header.magic = LV_IMAGE_HEADER_MAGIC;
+                s_bambu_camera_dsc.header.cf = LV_COLOR_FORMAT_RGB565;
+                s_bambu_camera_dsc.header.w = 320;
+                s_bambu_camera_dsc.header.h = 180;
+                s_bambu_camera_dsc.header.stride = 320 * 2;
+                s_bambu_camera_dsc.data_size = 320 * 180 * 2;
+                s_bambu_camera_dsc.data = s_bambu_camera_pixels;
+                lv_image_set_src(s_bambu_camera, &s_bambu_camera_dsc);
+                s_bambu_camera_revision = snapshot->bambu_camera_revision;
+            }
         }
-        lv_obj_remove_flag(s_bambu_camera, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(s_bambu_camera_empty, LV_OBJ_FLAG_HIDDEN);
+        if (s_bambu_camera_revision != 0) {
+            lv_obj_remove_flag(s_bambu_camera, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(s_bambu_camera_empty, LV_OBJ_FLAG_HIDDEN);
+        }
     } else {
         lv_obj_add_flag(s_bambu_camera, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(s_bambu_camera_empty, LV_OBJ_FLAG_HIDDEN);

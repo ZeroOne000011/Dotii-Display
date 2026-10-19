@@ -499,7 +499,7 @@ def thread_snapshot(thread: Any, now_epoch: int | None = None) -> dict[str, Any]
     )
     detached_active = (
         turn_status == "interrupted" and
-        (not latest_items or resumed_visible_activity) and
+        (not latest_items or resumed_visible_activity or latest_turn.get("completedAt") is None) and
         detached_recent and
         str(runtime.get("type", "")).lower() == "notloaded" and
         str(thread.get("source", "")).lower() in {"vscode", "appserver"}
@@ -515,6 +515,9 @@ def thread_snapshot(thread: Any, now_epoch: int | None = None) -> dict[str, Any]
         # A second read-only app-server sees a desktop-owned in-flight turn as
         # interrupted. Newer versions may also expose an empty placeholder
         # turn with completedAt populated while recencyAt continues to move.
+        # Populated desktop turns may include final-phase input prompts before
+        # the turn finishes. A missing completion timestamp must not become a
+        # failure solely because the original request is over 15 minutes old.
         status = "working"
     elif turn_status in {"failed", "interrupted", "cancelled", "canceled"}:
         status = "failed"

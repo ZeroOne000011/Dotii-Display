@@ -340,7 +340,7 @@ input:checked + .switch-track::after { transform: translateX(18px); background: 
 .bambu-fields label { display: grid; gap: 7px; color: var(--muted-strong); font-size: 13px; }
 .bambu-fields input { min-height: 42px; padding: 0 12px; border: 1px solid #35413e; border-radius: 9px; background: #0d1211; color: var(--text); }
 .bambu-camera-toggle { display: flex; align-items: center; gap: 9px; margin-top: 16px; color: var(--muted-strong); font-size: 13px; }
-.form-actions, .bambu-actions { display: flex; gap: 9px; margin-top: 20px; }
+.form-actions { display: flex; gap: 9px; margin-top: 20px; }
 .bambu-help { margin: 18px 0 0; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; line-height: 1.65; }
 .bambu-help.bluetooth-recovery-help { margin-top: 10px; padding-top: 0; border-top: 0; }
 .bambu-progress { color: var(--bambu); font-size: 31px; letter-spacing: -.04em; font-variant-numeric: tabular-nums; }

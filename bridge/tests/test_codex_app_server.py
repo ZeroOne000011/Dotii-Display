@@ -175,6 +175,32 @@ class CodexThreadSnapshotTests(unittest.TestCase):
         )
         self.assertEqual(snapshot["status"], "working")
 
+    def test_long_running_detached_turn_with_visible_progress_stays_working(self) -> None:
+        thread = self._thread(recency=self.NOW - 4 * 3600, updated=self.NOW, items=[
+            {"type": "userMessage", "content": "Run a long task"},
+            {"type": "agentMessage", "phase": "commentary", "text": "Still working"},
+            {"type": "commandExecution", "status": "completed"},
+        ])
+        thread["turns"][0]["completedAt"] = None
+        snapshot = thread_snapshot(thread, now_epoch=self.NOW)
+        self.assertEqual(snapshot["status"], "working")
+        self.assertEqual(snapshot["current_action"], "Still working")
+
+    def test_stale_detached_progress_does_not_remain_working_forever(self) -> None:
+        thread = self._thread(recency=self.NOW - 2 * 24 * 3600, updated=self.NOW, items=[
+            {"type": "agentMessage", "phase": "commentary", "text": "Old progress"},
+        ])
+        thread["turns"][0]["completedAt"] = None
+        self.assertEqual(thread_snapshot(thread, now_epoch=self.NOW)["status"], "failed")
+
+    def test_unfinished_desktop_turn_does_not_fail_based_on_final_phase_alone(self) -> None:
+        thread = self._thread(recency=self.NOW - 4 * 3600, updated=self.NOW, items=[
+            {"type": "agentMessage", "phase": "commentary", "text": "Progress"},
+            {"type": "agentMessage", "phase": "final_answer", "text": "Please choose an option"},
+        ])
+        thread["turns"][0]["completedAt"] = None
+        self.assertEqual(thread_snapshot(thread, now_epoch=self.NOW)["status"], "working")
+
     def test_interrupted_turn_with_persisted_items_remains_failed(self) -> None:
         snapshot = thread_snapshot(
             self._thread(
