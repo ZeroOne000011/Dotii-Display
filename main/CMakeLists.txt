@@ -3,6 +3,8 @@ idf_component_register(
         "main.c"
         "app_state.c"
         "connectivity.c"
+        "usb_transport.c"
+        "ui_language.c"
         "device_config.c"
         "ble_bridge.c"
         "board_input.c"
@@ -15,6 +17,7 @@ idf_component_register(
         "generated/ui_icons.c"
     INCLUDE_DIRS "." "generated"
     REQUIRES
+        esp_driver_usb_serial_jtag
         esp_event
         esp_app_format
         esp_http_client

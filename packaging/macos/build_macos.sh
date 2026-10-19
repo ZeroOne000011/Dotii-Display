@@ -2,14 +2,14 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-PYTHON_ROOT="$ROOT/.codx/macos-python"
+PYTHON_ROOT="$ROOT/.codex/macos-python"
 if [[ ! -x "$PYTHON_ROOT/bin/python3" ]]; then
-  PYTHON_ROOT="$ROOT/.codx/macos-env"
+  PYTHON_ROOT="$ROOT/.codex/macos-env"
 fi
 PYTHON="$PYTHON_ROOT/bin/python3"
 PYINSTALLER="$PYTHON_ROOT/bin/pyinstaller"
-WORK="$ROOT/.codx/macos-build"
-OUTPUT="$ROOT/.codx/macos-output"
+WORK="$ROOT/.codex/macos-build"
+OUTPUT="$ROOT/.codex/macos-output"
 DERIVED="$WORK/DerivedData"
 TOOLS_SOURCE=""
 SIGN_IDENTITY="-"
@@ -27,7 +27,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ -x "$PYTHON" && -x "$PYINSTALLER" ]] || {
-  echo "Missing .codx/macos-python or fallback .codx/macos-env build environment" >&2
+  echo "Missing .codex/macos-python or fallback .codex/macos-env build environment" >&2
   exit 1
 }
 
@@ -64,7 +64,7 @@ APP="$OUTPUT/DotiiManagementCenter-$VERSION.app"
 /bin/chmod 755 "$APP/Contents/Resources/DotiiBridgeRuntime/DotiiBridge"
 
 BUNDLED_WEB="$APP/Contents/Resources/DotiiBridgeRuntime/_internal/web"
-for asset in index.html app.js styles.css markdown.js; do
+for asset in index.html app.js styles.css markdown.js i18n.js translations.json; do
   /usr/bin/cmp -s "$ROOT/bridge/web/$asset" "$BUNDLED_WEB/$asset" || {
     echo "Bundled web asset mismatch: $asset" >&2
     exit 1

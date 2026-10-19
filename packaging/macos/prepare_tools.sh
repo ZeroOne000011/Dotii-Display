@@ -2,9 +2,9 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-DOWNLOADS="$ROOT/.codx/macos-tools-downloads"
-BUILD="$ROOT/.codx/macos-tools-build"
-OUTPUT="$ROOT/.codx/macos-tools"
+DOWNLOADS="$ROOT/.codex/macos-tools-downloads"
+BUILD="$ROOT/.codex/macos-tools-build"
+OUTPUT="$ROOT/.codex/macos-tools"
 NODE_VERSION="24.16.0"
 FFMPEG_VERSION="8.1.2"
 FFMPEG_SHA256="464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c"

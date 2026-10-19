@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
-import tempfile
+from dotii_test_support import temporary_directory
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -26,7 +26,7 @@ class WindowsPlatformAdapterTests(unittest.TestCase):
         self.assertTrue(adapter.serial_flash_available)
 
     def test_runtime_folder_keeps_existing_windows_location(self) -> None:
-        with tempfile.TemporaryDirectory(dir=BRIDGE.parent / ".codx") as temporary:
+        with temporary_directory() as temporary:
             with mock.patch.dict("os.environ", {"LOCALAPPDATA": temporary}, clear=False):
                 self.assertEqual(
                     WindowsPlatformAdapter().runtime_folder(),
@@ -34,7 +34,7 @@ class WindowsPlatformAdapterTests(unittest.TestCase):
                 )
 
     def test_packaged_startup_keeps_management_center_entry(self) -> None:
-        with tempfile.TemporaryDirectory(dir=BRIDGE.parent / ".codx") as temporary:
+        with temporary_directory() as temporary:
             executable = Path(temporary) / "DotiiManagementCenter.exe"
             command = WindowsPlatformAdapter().packaged_startup_command(executable)
             self.assertEqual(command, f'"{executable.resolve()}" --startup')
@@ -59,7 +59,7 @@ class MacOSPlatformAdapterTests(unittest.TestCase):
         self.assertEqual(adapter.ffmpeg_candidates(Path("/runtime"), Path("/tools"))[0].name, "ffmpeg")
 
     def test_absolute_runtime_override_is_limited_to_explicit_development_runs(self) -> None:
-        with tempfile.TemporaryDirectory(dir=BRIDGE.parent / ".codx") as temporary:
+        with temporary_directory() as temporary:
             with mock.patch.dict("os.environ", {"DOTII_RUNTIME_DIR": temporary}, clear=False):
                 self.assertEqual(MacOSPlatformAdapter().runtime_folder(), Path(temporary))
         with mock.patch.dict("os.environ", {"DOTII_RUNTIME_DIR": "relative"}, clear=False):
@@ -77,7 +77,7 @@ class MacOSPlatformAdapterTests(unittest.TestCase):
         self.assertLess(codex.index(Path("/app/tools/codex/bin/codex")), codex.index(Path("/opt/homebrew/bin/codex")))
 
     def test_app_bundle_separates_resources_and_helper_executables(self) -> None:
-        with tempfile.TemporaryDirectory(dir=BRIDGE.parent / ".codx") as temporary:
+        with temporary_directory() as temporary:
             contents = Path(temporary) / "Dotii Management Center.app" / "Contents"
             executable = contents / "Resources" / "DotiiBridgeRuntime" / "DotiiBridge"
             with (
@@ -100,7 +100,7 @@ class MacOSPlatformAdapterTests(unittest.TestCase):
         self.assertFalse(adapter.startup_enabled())
 
     def test_packaged_login_item_uses_native_host_cli(self) -> None:
-        with tempfile.TemporaryDirectory(dir=BRIDGE.parent / ".codx") as temporary:
+        with temporary_directory() as temporary:
             macos = Path(temporary) / "Dotii.app" / "Contents" / "MacOS"
             macos.mkdir(parents=True)
             bridge = macos.parent / "Resources" / "DotiiBridgeRuntime" / "DotiiBridge"
@@ -159,7 +159,7 @@ class MacOSPlatformAdapterTests(unittest.TestCase):
         self.assertFalse(adapter.valid_serial_port("COM6"))
 
     def test_bluetooth_service_is_available_with_corebluetooth(self) -> None:
-        with tempfile.TemporaryDirectory(dir=BRIDGE.parent / ".codx") as temporary:
+        with temporary_directory() as temporary:
             service = BluetoothBridge(Path(temporary), platform_adapter=MacOSPlatformAdapter())
             snapshot = service.snapshot()
 

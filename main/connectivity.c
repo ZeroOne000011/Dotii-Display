@@ -4,6 +4,16 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <sys/time.h>
+#include "esp_mac.h"
+#include "esp_app_desc.h"
+#include "esp_timer.h"
+#include "esp_rom_crc.h"
+#include "esp_system.h"
+#include "mbedtls/base64.h"
+#include "nvs.h"
+#include "usb_transport.h"
+#include "ui_language.h"
 
 #include "app_state.h"
 #include "cJSON.h"
@@ -44,6 +54,24 @@ static char s_bridge_note[48] = "正在启动";
 EXT_RAM_BSS_ATTR static codex_snapshot_t s_last_snapshot;
 EXT_RAM_BSS_ATTR static codex_snapshot_t s_work_snapshot;
 static bool s_have_snapshot;
+static int64_t s_usb_last_sync;
+static char s_connection_mode[8] = "auto";
+static char s_device_id[16];
+static bool s_wifi_bridge_online;
+static int64_t s_last_wifi_poll;
+static char s_usb_token[65];
+static uint32_t s_image_offset[2];
+static uint32_t s_image_revision[2];
+static uint32_t s_image_crc[2];
+static int s_image_slot[2];
+EXT_RAM_BSS_ATTR static uint8_t s_usb_decoded[4096];
+
+bool connectivity_usb_active(void)
+{
+    return strcmp(s_connection_mode, "wifi") != 0 && s_usb_last_sync > 0 &&
+           esp_timer_get_time() - s_usb_last_sync < 12000000;
+}
+
 static uint8_t *s_custom_image_buffers[2];
 static uint32_t s_custom_image_revisions[2];
 static int s_custom_image_active = -1;
@@ -639,10 +667,9 @@ static void copy_bambu_status(cJSON *root, codex_snapshot_t *snapshot)
     }
 }
 
-static bool parse_snapshot(const char *json, codex_snapshot_t *snapshot)
+static bool parse_snapshot_object(cJSON *root, codex_snapshot_t *snapshot)
 {
     bool ok = false;
-    cJSON *root = cJSON_Parse(json);
     if (root == NULL) return false;
 
     cJSON *version = cJSON_GetObjectItemCaseSensitive(root, "schema_version");
@@ -743,8 +770,15 @@ static bool parse_snapshot(const char *json, codex_snapshot_t *snapshot)
     ok = true;
 
 done:
-    cJSON_Delete(root);
     return ok;
+}
+
+static bool parse_snapshot(const char *json, codex_snapshot_t *snapshot)
+{
+    cJSON *root = cJSON_Parse(json);
+    bool parsed = parse_snapshot_object(root, snapshot);
+    cJSON_Delete(root);
+    return parsed;
 }
 
 static esp_err_t http_event_handler(esp_http_client_event_t *event)
@@ -888,6 +922,8 @@ static bool fetch_bambu_camera(uint32_t revision)
     return true;
 }
 
+static void apply_connection_options(cJSON *root);
+
 static bool fetch_snapshot(codex_snapshot_t *snapshot)
 {
     const device_config_values_t *device_config = device_config_get();
@@ -912,6 +948,7 @@ static bool fetch_snapshot(codex_snapshot_t *snapshot)
     }
 
     esp_http_client_set_header(client, "Accept", "application/json");
+    esp_http_client_set_header(client, "X-Dotii-Device", s_device_id);
     if (strlen(device_config->bridge_token) > 0) {
         esp_http_client_set_header(client, "X-Bridge-Token", device_config->bridge_token);
     }
@@ -929,6 +966,10 @@ static bool fetch_snapshot(codex_snapshot_t *snapshot)
         return false;
     }
     bool parsed = parse_snapshot(response.body, snapshot);
+    if (parsed) {
+        cJSON *root = cJSON_Parse(response.body);
+        if (root) { apply_connection_options(cJSON_GetObjectItemCaseSensitive(root, "display")); cJSON_Delete(root); }
+    }
     heap_caps_free(response.body);
     if (parsed) app_state_tasks_publish(s_work_tasks, s_work_task_count);
     if (parsed && snapshot->custom_image_available &&
@@ -967,6 +1008,14 @@ static bool send_bambu_command(bambu_command_t command)
     const device_config_values_t *device_config = device_config_get();
     const char *action = command == BAMBU_COMMAND_PAUSE ? "pause" :
                          command == BAMBU_COMMAND_RESUME ? "resume" : "stop";
+    if (connectivity_usb_active()) {
+        cJSON *message = cJSON_CreateObject();
+        cJSON_AddStringToObject(message, "event", "bambu_command");
+        cJSON_AddStringToObject(message, "action", action);
+        usb_transport_send(message);
+        cJSON_Delete(message);
+        return true;
+    }
     char url[256];
     strlcpy(url, device_config->bridge_url, sizeof(url));
     char *last_slash = strrchr(url, '/');
@@ -995,6 +1044,25 @@ static bool send_bambu_command(bambu_command_t command)
     return error == ESP_OK && status == 202;
 }
 
+static void check_wifi_link(void)
+{
+    const device_config_values_t *device_config = device_config_get();
+    if (!s_wifi_connected || !device_config->bridge_url[0]) { s_wifi_bridge_online = false; return; }
+    char url[256];
+    strlcpy(url, device_config->bridge_url, sizeof(url));
+    char *last = strrchr(url, '/');
+    if (!last) return;
+    strlcpy(last + 1, "device/ping", sizeof(url) - (size_t)(last + 1 - url));
+    esp_http_client_config_t config = {.url = url, .timeout_ms = 1500, .crt_bundle_attach = esp_crt_bundle_attach};
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+    if (!client) return;
+    esp_http_client_set_header(client, "X-Bridge-Token", device_config->bridge_token);
+    esp_http_client_set_header(client, "X-Dotii-Device", s_device_id);
+    esp_err_t error = esp_http_client_perform(client);
+    s_wifi_bridge_online = error == ESP_OK && esp_http_client_get_status_code(client) == 200;
+    esp_http_client_cleanup(client);
+}
+
 static void publish_offline_state(void)
 {
     if (s_have_snapshot) {
@@ -1013,6 +1081,172 @@ static void publish_offline_state(void)
     app_state_publish(&s_work_snapshot);
 }
 
+
+static const char *usb_string(cJSON *root, const char *key)
+{
+    cJSON *value = cJSON_GetObjectItemCaseSensitive(root, key);
+    return cJSON_IsString(value) ? value->valuestring : "";
+}
+
+static bool token_equal(const char *a, const char *b)
+{
+    size_t la = strlen(a), lb = strlen(b);
+    unsigned difference = (unsigned)(la ^ lb);
+    for (size_t i = 0; i < la || i < lb; i++) difference |= (i < la ? a[i] : 0) ^ (i < lb ? b[i] : 0);
+    return difference == 0;
+}
+
+static void apply_connection_options(cJSON *root)
+{
+    const char *language = usb_string(root, "language");
+    ui_language_set(language);
+    const char *mode = usb_string(root, "connection_mode");
+    if ((strcmp(mode, "auto") == 0 || strcmp(mode, "usb") == 0 || strcmp(mode, "wifi") == 0) &&
+        strcmp(mode, s_connection_mode) != 0) {
+        strlcpy(s_connection_mode, mode, sizeof(s_connection_mode));
+        nvs_handle_t handle;
+        if (nvs_open("display_ui", NVS_READWRITE, &handle) == ESP_OK) {
+            nvs_set_str(handle, "connection", mode);
+            nvs_commit(handle);
+            nvs_close(handle);
+        }
+    }
+}
+
+static bool receive_usb_image(cJSON *root)
+{
+    const bool custom = strcmp(usb_string(root, "kind"), "custom") == 0;
+    if (!custom && strcmp(usb_string(root, "kind"), "camera") != 0) return false;
+    int kind = custom ? 0 : 1;
+    const uint32_t total = custom ? CUSTOM_IMAGE_BYTES : BAMBU_CAMERA_BYTES;
+    cJSON *offset_value = cJSON_GetObjectItemCaseSensitive(root, "offset");
+    cJSON *revision_value = cJSON_GetObjectItemCaseSensitive(root, "revision");
+    cJSON *total_value = cJSON_GetObjectItemCaseSensitive(root, "total");
+    cJSON *crc_value = cJSON_GetObjectItemCaseSensitive(root, "crc");
+    if (!cJSON_IsNumber(offset_value) || !cJSON_IsNumber(revision_value) || !cJSON_IsNumber(crc_value) ||
+        !cJSON_IsNumber(total_value) || total_value->valuedouble != total ||
+        offset_value->valuedouble < 0 || offset_value->valuedouble >= total) return false;
+    uint32_t offset = (uint32_t)offset_value->valuedouble;
+    uint32_t revision = (uint32_t)revision_value->valuedouble;
+    uint8_t **buffers = custom ? s_custom_image_buffers : s_bambu_camera_buffers;
+    uint32_t *revisions = custom ? s_custom_image_revisions : s_bambu_camera_revisions;
+    if (offset == 0) {
+        s_image_slot[kind] = (custom ? s_custom_image_active : s_bambu_camera_active) == 0 ? 1 : 0;
+        int slot = s_image_slot[kind];
+        if (!buffers[slot]) buffers[slot] = heap_caps_malloc(total, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (!buffers[slot]) return false;
+        revisions[slot] = 0;
+        s_image_offset[kind] = 0;
+        s_image_revision[kind] = revision;
+        s_image_crc[kind] = (uint32_t)crc_value->valuedouble;
+    }
+    if (s_image_offset[kind] != offset || s_image_revision[kind] != revision ||
+        s_image_crc[kind] != (uint32_t)crc_value->valuedouble) return false;
+    const char *encoded = usb_string(root, "data");
+    if (strlen(encoded) > 5500) return false;
+    size_t length = 0;
+    if (mbedtls_base64_decode(s_usb_decoded, sizeof(s_usb_decoded), &length, (const unsigned char *)encoded, strlen(encoded)) != 0 ||
+        !length || offset + length > total) return false;
+    int slot = s_image_slot[kind];
+    memcpy(buffers[slot] + offset, s_usb_decoded, length);
+    s_image_offset[kind] += length;
+    if (s_image_offset[kind] == total) {
+        if (esp_rom_crc32_le(0, buffers[slot], total) != s_image_crc[kind]) return false;
+        if (custom) blacken_custom_frame_near_black_edge(buffers[slot]);
+        revisions[slot] = revision;
+        if (custom) s_custom_image_active = slot;
+        else s_bambu_camera_active = slot;
+    }
+    return true;
+}
+
+static void process_usb(cJSON *request)
+{
+    cJSON *response = cJSON_CreateObject();
+    cJSON *id = cJSON_GetObjectItemCaseSensitive(request, "id");
+    cJSON_AddNumberToObject(response, "id", cJSON_IsNumber(id) ? id->valuedouble : 0);
+    const char *op = usb_string(request, "op");
+    const char *token = usb_string(request, "token");
+    const device_config_values_t *config = device_config_get();
+    const char *bound = config->provisioned ? config->bridge_token : s_usb_token;
+    const char *error = NULL;
+    bool restart = false;
+    if (strlen(token) < 16 || strlen(token) > 64 || (*bound && !token_equal(token, bound))) {
+        error = "binding_mismatch";
+    } else if (strcmp(op, "hello") == 0) {
+        cJSON_AddStringToObject(response, "product", "Dotii");
+        cJSON_AddNumberToObject(response, "protocol", 1);
+        cJSON_AddStringToObject(response, "device_id", s_device_id);
+        cJSON_AddStringToObject(response, "firmware", esp_app_get_description()->version);
+    } else if (strcmp(op, "snapshot") == 0) {
+        cJSON *payload = cJSON_GetObjectItemCaseSensitive(request, "snapshot");
+        bool parsed = cJSON_IsObject(payload) && parse_snapshot_object(payload, &s_work_snapshot);
+        if (!parsed) error = "invalid_snapshot";
+        else {
+            apply_connection_options(request);
+            cJSON *epoch = cJSON_GetObjectItemCaseSensitive(request, "epoch");
+            if (cJSON_IsNumber(epoch) && epoch->valuedouble > 1700000000) {
+                struct timeval now = {.tv_sec = (time_t)epoch->valuedouble};
+                settimeofday(&now, NULL);
+            }
+            if (!*bound) {
+                nvs_handle_t handle;
+                if (nvs_open("dotii_cfg", NVS_READWRITE, &handle) == ESP_OK) {
+                    if (nvs_set_str(handle, "usb_token", token) == ESP_OK && nvs_commit(handle) == ESP_OK)
+                        strlcpy(s_usb_token, token, sizeof(s_usb_token));
+                    nvs_close(handle);
+                }
+            }
+            if (strcmp(s_connection_mode, "wifi") != 0) {
+                s_usb_last_sync = esp_timer_get_time();
+                s_bridge_online = true;
+                s_bridge_failures = 0;
+                if (!connectivity_custom_image_data(s_work_snapshot.custom_image_revision)) s_work_snapshot.custom_image_available = false;
+                if (!connectivity_bambu_camera_data(s_work_snapshot.bambu_camera_revision)) s_work_snapshot.bambu_camera_available = false;
+                app_state_tasks_publish(s_work_tasks, s_work_task_count);
+                s_last_snapshot = s_work_snapshot;
+                s_have_snapshot = true;
+                app_state_publish(&s_work_snapshot);
+            }
+        }
+    } else if (strcmp(op, "image") == 0) {
+        if (!receive_usb_image(request)) error = "invalid_image_chunk";
+    } else if (strcmp(op, "provision") == 0) {
+        device_config_values_t next = *config;
+        const char *ssid = usb_string(request, "ssid"), *password = usb_string(request, "password");
+        const char *url = usb_string(request, "bridge_url");
+        if (!*ssid || strlen(ssid) > 32 || strlen(password) > 64 || strlen(url) >= sizeof(next.bridge_url) || strncmp(url, "http://", 7)) {
+            error = "invalid_config";
+        } else {
+            strlcpy(next.wifi_ssid, ssid, sizeof(next.wifi_ssid));
+            const bool preserve = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(request, "preserve_password"));
+            if (preserve && strcmp(ssid, config->wifi_ssid) != 0) error = "saved_network_mismatch";
+            if (!preserve) strlcpy(next.wifi_password, password, sizeof(next.wifi_password));
+            strlcpy(next.bridge_url, url, sizeof(next.bridge_url));
+            strlcpy(next.bridge_token, token, sizeof(next.bridge_token));
+            if (!error) {
+                if (device_config_save(&next) != ESP_OK) error = "storage_failed";
+                else restart = true;
+            }
+        }
+    } else error = "unknown_operation";
+    cJSON_AddBoolToObject(response, "ok", error == NULL);
+    if (error) cJSON_AddStringToObject(response, "error", error);
+    cJSON_AddBoolToObject(response, "wifi", s_wifi_connected);
+    cJSON_AddBoolToObject(response, "wifi_bridge", s_wifi_bridge_online);
+    cJSON_AddStringToObject(response, "ssid", config->wifi_ssid);
+    cJSON_AddStringToObject(response, "language", ui_language_english() ? "en" : "zh-CN");
+    cJSON_AddStringToObject(response, "mode", s_connection_mode);
+    cJSON_AddNumberToObject(response, "uptime", esp_timer_get_time() / 1000000);
+    cJSON_AddNumberToObject(response, "reset_reason", esp_reset_reason());
+    cJSON_AddNumberToObject(response, "free_internal", heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+    cJSON_AddNumberToObject(response, "custom_revision", s_custom_image_active >= 0 ? s_custom_image_revisions[s_custom_image_active] : 0);
+    cJSON_AddNumberToObject(response, "camera_revision", s_bambu_camera_active >= 0 ? s_bambu_camera_revisions[s_bambu_camera_active] : 0);
+    usb_transport_send(response);
+    cJSON_Delete(response);
+    if (restart) { vTaskDelay(pdMS_TO_TICKS(300)); esp_restart(); }
+}
+
 static void bridge_task(void *argument)
 {
     (void)argument;
@@ -1023,9 +1257,29 @@ static void bridge_task(void *argument)
             WIFI_CONNECTED_BIT | REFRESH_REQUESTED_BIT,
             pdTRUE,
             pdFALSE,
-            pdMS_TO_TICKS(CONFIG_STATE_DISPLAY_POLL_SECONDS * 1000));
+            pdMS_TO_TICKS(20));
 
-        if ((bits & WIFI_CONNECTED_BIT) || s_wifi_connected) {
+        cJSON *message;
+        while ((message = usb_transport_receive()) != NULL) {
+            process_usb(message);
+            cJSON_Delete(message);
+        }
+        bambu_command_t usb_command;
+        if (connectivity_usb_active()) {
+            while (xQueueReceive(s_bambu_command_queue, &usb_command, 0) == pdTRUE) send_bambu_command(usb_command);
+            if (esp_timer_get_time() - s_last_wifi_poll > 10000000 && strcmp(s_connection_mode, "usb") != 0) {
+                s_last_wifi_poll = esp_timer_get_time();
+                check_wifi_link();
+            }
+            continue;
+        }
+        if (strcmp(s_connection_mode, "usb") == 0) {
+            if (s_bridge_online) { s_bridge_online = false; publish_offline_state(); }
+            continue;
+        }
+        if (!(bits & REFRESH_REQUESTED_BIT) && esp_timer_get_time() - s_last_wifi_poll < CONFIG_STATE_DISPLAY_POLL_SECONDS * 1000000LL) continue;
+        s_last_wifi_poll = esp_timer_get_time();
+        if (s_wifi_connected) {
             bambu_command_t command;
             while (s_bambu_command_queue != NULL && xQueueReceive(s_bambu_command_queue, &command, 0) == pdTRUE) {
                 send_bambu_command(command);
@@ -1035,10 +1289,12 @@ static void bridge_task(void *argument)
                 s_last_snapshot = s_work_snapshot;
                 s_have_snapshot = true;
                 s_bridge_online = true;
+                s_wifi_bridge_online = true;
                 s_bridge_failures = 0;
                 strlcpy(s_bridge_note, s_work_snapshot.preview_data ? "管理中心在线 · 预览数据" : "管理中心在线", sizeof(s_bridge_note));
                 app_state_publish(&s_work_snapshot);
             } else {
+                s_wifi_bridge_online = false;
                 if (s_bridge_failures < UINT8_MAX) s_bridge_failures++;
                 if (s_have_snapshot && s_bridge_failures < 12) {
                     strlcpy(s_bridge_note, "正在重连 · 保留上次数据", sizeof(s_bridge_note));
@@ -1049,6 +1305,10 @@ static void bridge_task(void *argument)
                     publish_offline_state();
                 }
             }
+        } else {
+            s_bridge_online = false;
+            s_wifi_bridge_online = false;
+            publish_offline_state();
         }
     }
 }
@@ -1104,6 +1364,20 @@ void connectivity_start(void)
 {
     const device_config_values_t *device_config = device_config_get();
     ESP_LOGI(TAG, "Preparing bridge data channel");
+    uint8_t mac[6];
+    ESP_ERROR_CHECK(esp_read_mac(mac, ESP_MAC_WIFI_STA));
+    snprintf(s_device_id, sizeof(s_device_id), "%02X%02X%02X%02X%02X%02X", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    nvs_handle_t preferences;
+    if (nvs_open("display_ui", NVS_READONLY, &preferences) == ESP_OK) {
+        size_t size = sizeof(s_connection_mode);
+        nvs_get_str(preferences, "connection", s_connection_mode, &size);
+        nvs_close(preferences);
+    }
+    if (nvs_open("dotii_cfg", NVS_READONLY, &preferences) == ESP_OK) {
+        size_t size = sizeof(s_usb_token);
+        nvs_get_str(preferences, "usb_token", s_usb_token, &size);
+        nvs_close(preferences);
+    }
     s_events = xEventGroupCreate();
     s_bambu_command_queue = xQueueCreate(4, sizeof(bambu_command_t));
     s_work_tasks = heap_caps_calloc(CODEX_TASK_DETAIL_MAX, sizeof(*s_work_tasks),
@@ -1126,6 +1400,12 @@ void connectivity_start(void)
     ESP_LOGI(TAG, "Starting Wi-Fi station");
     wifi_start();
     ESP_LOGI(TAG, "Connectivity services started");
+}
+
+esp_err_t connectivity_start_usb(void)
+{
+    /* Reserve radio and display DMA allocations before USB ring buffers. */
+    return usb_transport_start();
 }
 
 bool connectivity_bambu_command(const char *action)
@@ -1155,10 +1435,10 @@ void connectivity_get_summary(char *buffer, size_t buffer_size)
 {
     const device_config_values_t *device_config = device_config_get();
     if (strlen(device_config->wifi_ssid) == 0) {
-        snprintf(buffer, buffer_size, "未配置");
+        snprintf(buffer, buffer_size, "%s", ui_tr("未配置"));
     } else {
         snprintf(buffer, buffer_size, "%s · %s", device_config->wifi_ssid,
-                 s_wifi_connected ? "已连接" : "连接中");
+                 ui_tr(s_wifi_connected ? "已连接" : "连接中"));
     }
 }
 
@@ -1169,6 +1449,7 @@ void connectivity_get_ip(char *buffer, size_t buffer_size)
 
 void connectivity_get_bridge_summary(char *buffer, size_t buffer_size)
 {
-    (void)s_bridge_online;
-    strlcpy(buffer, s_bridge_note, buffer_size);
+    if (connectivity_usb_active()) snprintf(buffer, buffer_size, "USB · %s", ui_tr("已连接"));
+    else if (!strcmp(s_connection_mode, "usb")) snprintf(buffer, buffer_size, "%s", ui_tr("等待 USB"));
+    else strlcpy(buffer, ui_tr(s_bridge_note), buffer_size);
 }

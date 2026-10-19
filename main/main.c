@@ -12,8 +12,18 @@
 #include "nvs.h"
 #include "nvs_flash.h"
 #include "state_ui.h"
+#include "ui_language.h"
+#include "cJSON.h"
+#include "esp_heap_caps.h"
 
 static const char *TAG = "state_display";
+
+static void *json_allocate(size_t size)
+{
+    /* JSON trees and strings are task data, never DMA/ISR data. Keep even
+       their small nodes out of the scarce radio/display internal heap. */
+    return heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+}
 
 static const char *reset_reason_name(esp_reset_reason_t reason)
 {
@@ -85,12 +95,15 @@ void app_main(void)
         ESP_ERROR_CHECK(nvs_error);
     }
     log_reset_diagnostics();
+    cJSON_Hooks json_hooks = {.malloc_fn = json_allocate, .free_fn = heap_caps_free};
+    cJSON_InitHooks(&json_hooks);
     board_input_prepare_after_wake();
     ESP_ERROR_CHECK(device_config_init());
+    ui_language_init();
 
     QueueHandle_t queue = app_state_queue_create();
     ESP_ERROR_CHECK(queue == NULL ? ESP_ERR_NO_MEM : ESP_OK);
-    /* Wi-Fi owns the primary data path. Initialize both radios before the
+    /* Initialize both radios before the
        display claims its internal DMA buffers so coexistence has contiguous
        controller memory without sacrificing the screen pipeline. */
     connectivity_start();
@@ -102,6 +115,7 @@ void app_main(void)
 
     lv_display_t *display = bsp_display_start();
     ESP_ERROR_CHECK(display == NULL ? ESP_FAIL : ESP_OK);
+    ESP_ERROR_CHECK(connectivity_start_usb());
     ESP_ERROR_CHECK(bsp_display_lock(1000));
     state_ui_start(queue);
     bsp_display_unlock();

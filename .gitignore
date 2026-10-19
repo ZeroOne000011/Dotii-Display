@@ -13,3 +13,7 @@ release/
 tools/
 .vscode/
 .DS_Store
+
+.codex/
+/PROJECT.md
+/AGENTS.md

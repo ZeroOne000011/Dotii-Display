@@ -2,7 +2,7 @@ import asyncio
 import json
 import os
 import sys
-import tempfile
+from dotii_test_support import temporary_directory
 import threading
 import unittest
 import zlib
@@ -94,7 +94,7 @@ class BluetoothPacketTests(unittest.TestCase):
 
     def test_corebluetooth_identifier_is_saved_privately_and_restored(self):
         identifier = "243E23AE-4A99-406C-B317-18F1BD7B4CBE"
-        with tempfile.TemporaryDirectory() as folder:
+        with temporary_directory() as folder:
             path = Path(folder)
             bridge = BluetoothBridge(path, platform_adapter=MacOSPlatformAdapter())
             bridge._save_last_address(identifier)
@@ -120,7 +120,7 @@ class MacOSBluetoothTests(unittest.IsolatedAsyncioTestCase):
                 scan_options.update(kwargs)
                 return {identifier: (device, advertisement)}
 
-        with tempfile.TemporaryDirectory() as folder:
+        with temporary_directory() as folder:
             bridge = BluetoothBridge(Path(folder), platform_adapter=MacOSPlatformAdapter())
             bridge._bleak = lambda: (None, Scanner)
             devices = await bridge._discover()
@@ -132,7 +132,7 @@ class MacOSBluetoothTests(unittest.IsolatedAsyncioTestCase):
     async def test_scan_reads_status_on_the_discovery_event_loop(self):
         identifier = "243E23AE-4A99-406C-B317-18F1BD7B4CBE"
         loop_seen = {}
-        with tempfile.TemporaryDirectory() as folder:
+        with temporary_directory() as folder:
             bridge = BluetoothBridge(Path(folder), platform_adapter=MacOSPlatformAdapter())
 
             async def discover():
@@ -156,7 +156,7 @@ class MacOSBluetoothTests(unittest.IsolatedAsyncioTestCase):
 
     def test_monitor_restores_registered_device_in_management_list(self):
         identifier = "243E23AE-4A99-406C-B317-18F1BD7B4CBE"
-        with tempfile.TemporaryDirectory() as folder:
+        with temporary_directory() as folder:
             bridge = BluetoothBridge(Path(folder), platform_adapter=MacOSPlatformAdapter())
             bridge.last_address = identifier
             bridge.dependency_ready = lambda: True
@@ -182,7 +182,7 @@ class MacOSBluetoothTests(unittest.IsolatedAsyncioTestCase):
         identifier = "243E23AE-4A99-406C-B317-18F1BD7B4CBE"
         denied = Exception("not authorized")
         denied.reason = SimpleNamespace(name="DENIED_BY_USER")
-        with tempfile.TemporaryDirectory() as folder:
+        with temporary_directory() as folder:
             bridge = BluetoothBridge(Path(folder), platform_adapter=MacOSPlatformAdapter())
 
             async def discover_with_status():
@@ -196,7 +196,7 @@ class MacOSBluetoothTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("隐私与安全性", bridge.connection_detail)
 
     def test_monitor_keeps_recognized_device_during_transient_disconnect(self):
-        with tempfile.TemporaryDirectory() as folder:
+        with temporary_directory() as folder:
             bridge = BluetoothBridge(Path(folder), platform_adapter=MacOSPlatformAdapter())
             bridge.last_address = "243E23AE-4A99-406C-B317-18F1BD7B4CBE"
             bridge.device_status = {"name": "Dotii", "wifi": True}
@@ -217,7 +217,7 @@ class MacOSBluetoothTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(bridge.devices[0]["remembered"])
 
     def test_monitor_does_not_replace_stale_pairing_with_uuid_lookup_error(self):
-        with tempfile.TemporaryDirectory() as folder:
+        with temporary_directory() as folder:
             bridge = BluetoothBridge(Path(folder), platform_adapter=MacOSPlatformAdapter())
             bridge.last_address = "243E23AE-4A99-406C-B317-18F1BD7B4CBE"
             bridge.connection_state = "stale_pairing"
@@ -235,7 +235,7 @@ class MacOSBluetoothTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn(bridge.last_address, bridge.connection_detail)
 
     def test_macos_start_requests_one_automatic_identification_scan(self):
-        with tempfile.TemporaryDirectory() as folder:
+        with temporary_directory() as folder:
             bridge = BluetoothBridge(Path(folder), platform_adapter=MacOSPlatformAdapter())
             bridge.stop_event.set()
             bridge.dependency_ready = lambda: True
@@ -272,7 +272,7 @@ class MacOSBluetoothTests(unittest.IsolatedAsyncioTestCase):
                 if packet == b"\x03":
                     self.notification(None, bytearray(b'{"ok":true,"state":"restarting"}'))
 
-        with tempfile.TemporaryDirectory() as folder:
+        with temporary_directory() as folder:
             bridge = BluetoothBridge(Path(folder), platform_adapter=MacOSPlatformAdapter())
             bridge._bleak = lambda: (Client, None)
             bridge._ble_devices[identifier] = native_device

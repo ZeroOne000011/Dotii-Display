@@ -13,13 +13,10 @@ from pathlib import Path
 from typing import Any, Callable
 
 from platforms import PlatformAdapter, current_platform
-from runtime_paths import is_frozen
+from runtime_paths import is_frozen, project_version as _project_version
 
 
 PROGRESS_PATTERN = re.compile(r"(?:Writing|Hash of data verified|Hard resetting|Stub running).*?(\d+(?:\.\d+)?)%?", re.I)
-PROJECT_VERSION_PATTERN = re.compile(
-    r'^\s*set\s*\(\s*PROJECT_VER\s+"?([^"\s\)]+)', re.MULTILINE
-)
 
 
 def _hidden_creation_flags() -> int:
@@ -42,16 +39,6 @@ def _public_flash_log_line(line: str, build_root: Path, port: str) -> str:
     public = public.replace(str(Path.home()), "<home>")
     public = re.sub(r"[A-Za-z]:\\[^\s]+", "<firmware>", public)
     return public[:300]
-
-
-def _project_version(project_root: Path) -> str:
-    """Read the firmware fallback version from the single CMake source of truth."""
-    try:
-        cmake = (project_root / "CMakeLists.txt").read_text(encoding="utf-8")
-    except OSError:
-        return ""
-    match = PROJECT_VERSION_PATTERN.search(cmake)
-    return match.group(1)[:48] if match else ""
 
 
 def _firmware_root(project_root: Path) -> Path:

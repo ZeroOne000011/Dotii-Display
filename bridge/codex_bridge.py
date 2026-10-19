@@ -34,11 +34,15 @@ from codex_app_server import probe_app_server, run_collector
 from bambu_client import BambuConfigStore, BambuService
 from bluetooth_bridge import BluetoothBridge
 from firmware_flasher import FirmwareFlasher
+from connection_settings import ConnectionSettings
+from usb_bridge import UsbBridge
+from localization import localize_admin
 from platforms import current_platform
 from runtime_paths import (
     application_root,
     is_frozen,
     project_root,
+    project_version,
     resource_path,
     runtime_folder,
     sibling_executable,
@@ -47,6 +51,7 @@ from runtime_paths import (
 
 
 SCHEMA_VERSION = 1
+APP_VERSION = project_version()
 MAX_BODY = 32 * 1024
 CUSTOM_FRAME_WIDTH = 466
 CUSTOM_FRAME_HEIGHT = 466
@@ -1058,7 +1063,7 @@ class RuntimeStatus:
 
 
 class BridgeHandler(BaseHTTPRequestHandler):
-    server_version = "StateDisplayBridge/1.1"
+    server_version = f"StateDisplayBridge/{APP_VERSION}"
 
     @property
     def bridge(self) -> "BridgeServer":
@@ -1088,6 +1093,8 @@ class BridgeHandler(BaseHTTPRequestHandler):
             logging.debug("客户端在响应写入完成前断开：%s", self.client_address[0])
 
     def _send_json(self, status: int, payload: Any) -> None:
+        if urlparse(self.path).path.startswith("/api/v1/admin/") and self.bridge.connections.read()["language"] == "en":
+            payload = localize_admin(payload)
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self._send_bytes(status, body, "application/json; charset=utf-8")
 
@@ -1144,7 +1151,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
         address = local_ipv4()
         runtime = self.bridge.runtime.snapshot()
         return {
-            "app": {"name": "Dotii 管理中心", "version": "1.1.1"},
+            "app": {"name": "Dotii 管理中心", "version": APP_VERSION},
             "bridge": {
                 "online": True,
                 "local_url": f"http://127.0.0.1:{self.bridge.server_port}",
@@ -1160,6 +1167,10 @@ class BridgeHandler(BaseHTTPRequestHandler):
             "dotii_config": self.bridge.dotii.read(),
             "display_config": self.bridge.display.read(),
             "bambu_config": self.bridge.bambu_config.public(),
+            "connection_settings": self.bridge.connections.read(),
+            "usb": self.bridge.usb.snapshot(),
+            "wifi_last_seen": self.bridge.wifi_seen.get(self.bridge.connections.read()["device_id"], 0),
+            "wifi_data_last_seen": self.bridge.wifi_data_seen.get(self.bridge.connections.read()["device_id"], 0),
             "bluetooth": self.bridge.bluetooth.snapshot(),
             "firmware": self.bridge.firmware.snapshot(),
             "modules": [
@@ -1178,11 +1189,23 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 "schema_version": SCHEMA_VERSION,
                 "parent_pid": self.bridge.host_parent_pid,
             })
+        elif path == "/api/v1/device/ping":
+            if not self._authorized():
+                self._send_json(HTTPStatus.UNAUTHORIZED, {"error": "invalid bridge token"})
+                return
+            device_id = self.headers.get("X-Dotii-Device", "")[:64]
+            if device_id:
+                self.bridge.wifi_seen[device_id] = int(time.time())
+            self._send_json(HTTPStatus.OK, {"ok": True})
         elif path == "/api/v1/snapshot":
             if not self._authorized():
                 self._send_json(HTTPStatus.UNAUTHORIZED, {"error": "invalid bridge token"})
                 return
             try:
+                device_id = self.headers.get("X-Dotii-Device", "")[:64]
+                if device_id:
+                    self.bridge.wifi_seen[device_id] = int(time.time())
+                    self.bridge.wifi_data_seen[device_id] = int(time.time())
                 self._send_json(HTTPStatus.OK, self.bridge.snapshot())
             except (OSError, ValueError, json.JSONDecodeError) as error:
                 self._send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(error)})
@@ -1233,6 +1256,21 @@ class BridgeHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         path = urlparse(self.path).path
+        if path in {"/api/v1/admin/connection", "/api/v1/admin/usb/configure"}:
+            if self._deny_nonlocal():
+                return
+            try:
+                payload = self._read_admin_action()
+                if path.endswith("/configure"):
+                    self.bridge.usb.configure(payload.get("ssid"), payload.get("password", ""), payload.get("preserve_password", False))
+                else:
+                    if set(payload) - {"language", "device_language", "mode", "port"}:
+                        raise ValueError("Invalid connection settings")
+                    self.bridge.connections.write(payload)
+                self._send_json(HTTPStatus.OK, {"ok": True, "connection_settings": self.bridge.connections.read()})
+            except (OSError, ValueError) as error:
+                self._send_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+            return
         if path == "/api/v1/admin/codex/check":
             if self._deny_nonlocal():
                 return
@@ -1308,11 +1346,27 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 payload = self._read_admin_action()
                 if payload.get("confirmation") != "FLASH_DOTII":
                     raise ValueError("需要确认后才能烧录")
-                started = self.bridge.firmware.start_flash(payload.get("port"))
-                if not started:
-                    self._send_json(HTTPStatus.CONFLICT, {"error": "已有烧录任务正在运行"})
-                else:
-                    self._send_json(HTTPStatus.ACCEPTED, {"ok": True})
+                with self.bridge.usb.flash_lock:
+                    if self.bridge.firmware.operation_state == "running":
+                        self._send_json(HTTPStatus.CONFLICT, {"error": "已有烧录任务正在运行"})
+                        return
+                    self.bridge.usb.pause()
+                    try:
+                        started = self.bridge.firmware.start_flash(payload.get("port"))
+                    except Exception:
+                        self.bridge.usb.resume()
+                        raise
+                    if not started:
+                        self.bridge.usb.resume()
+                    else:
+                        def resume_usb():
+                            self.bridge.firmware.worker.join()
+                            self.bridge.usb.resume()
+                        threading.Thread(target=resume_usb, daemon=True, name="usb-after-flash").start()
+                    if not started:
+                        self._send_json(HTTPStatus.CONFLICT, {"error": "已有烧录任务正在运行"})
+                    else:
+                        self._send_json(HTTPStatus.ACCEPTED, {"ok": True})
             except (OSError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as error:
                 self._send_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
             return
@@ -1520,6 +1574,13 @@ class BridgeServer(ThreadingHTTPServer):
         self.application_folder = application_folder
         self.codex_command = codex_command
         self.host_parent_pid = host_parent_pid
+        self.connections = ConnectionSettings(runtime_folder / "connection.json")
+        self.usb = UsbBridge(self)
+        self.wifi_seen = {}
+        self.wifi_data_seen = {}
+
+    def device_url(self):
+        return f"http://{local_ipv4()}:{self.server_port}/api/v1/snapshot"
 
     def snapshot(self) -> dict[str, Any]:
         snapshot = self.store.read()
@@ -1533,7 +1594,7 @@ class BridgeServer(ThreadingHTTPServer):
         snapshot["dotii"] = dotii_state(
             snapshot, snapshot["bambu"], modules["dotii"], self.dotii.read()
         )
-        snapshot["display"] = self.display.read()
+        snapshot["display"] = {**self.display.read(), **self.connections.device()}
         return snapshot
 
 
@@ -1547,12 +1608,13 @@ def main() -> None:
     parser.add_argument("--codex-command", help="path to a standalone Codex CLI executable or codex.js")
     parser.add_argument("--app-server-interval", type=float, default=2.0)
     parser.add_argument("--parent-pid", type=int, default=0, help=argparse.SUPPRESS)
+    parser.add_argument("--development", action="store_true", help=argparse.SUPPRESS)
     arguments = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     # Preserve the user's enabled/disabled choice while repairing stale paths
     # and releases that incorrectly registered DotiiBridge.exe as the login app.
     try:
-        if startup_enabled():
+        if not arguments.development and startup_enabled():
             set_startup(True)
     except OSError as error:
         logging.warning("无法修复登录自启动命令：%s", error)
@@ -1587,6 +1649,7 @@ def main() -> None:
                           custom, modules, dotii, display, codex_check, assets, bambu_config, bambu,
                           bluetooth, firmware, writable_root, application_root(), arguments.codex_command,
                           arguments.parent_pid)
+    server.usb.start()
     if arguments.parent_pid > 1:
         threading.Thread(
             target=watch_parent,
@@ -1623,6 +1686,7 @@ def main() -> None:
         pass
     finally:
         stop.set()
+        server.usb.stop()
         bambu.stop()
         bluetooth.stop()
         firmware.stop()

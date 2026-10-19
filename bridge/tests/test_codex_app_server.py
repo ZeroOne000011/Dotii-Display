@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sys
-import tempfile
+from dotii_test_support import temporary_directory
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,10 +17,20 @@ from codex_app_server import (  # noqa: E402
     account_snapshot,
     probe_app_server,
     thread_snapshot,
+    _display_agent_text,
+    _safe_message,
 )
 
 
 class CodexAppServerProbeTests(unittest.TestCase):
+    def test_device_reply_hides_app_annotations_without_removing_prose(self):
+        text = '已完成。\n:codex-file-citation[path="C:/项目/PPT.pptx"]\n下一步。'
+        self.assertEqual(_safe_message(_display_agent_text(text)), '已完成。\n\n下一步。')
+        text = '完成<oai-mem-citation>private path\nmore</oai-mem-citation>。'
+        self.assertEqual(_display_agent_text(text), '完成。')
+        text = '保留 [报告](C:/报告.docx) 和 PROJECT.md 以及普通 [方括号]。'
+        self.assertEqual(_display_agent_text(text), text)
+
     def test_probe_reports_account_and_all_read_only_checks(self) -> None:
         responses = {
             "account/read": {"account": {"type": "chatgpt", "email": "user@example.com", "planType": "plus"}},
@@ -28,7 +38,7 @@ class CodexAppServerProbeTests(unittest.TestCase):
             "account/usage/read": {"dailyUsageBuckets": []},
             "thread/list": {"data": [{"id": "thread-1"}, {"id": "thread-2"}]},
         }
-        with tempfile.TemporaryDirectory(dir=BRIDGE.parent / ".codx") as temporary:
+        with temporary_directory() as temporary:
             with mock.patch("codex_app_server.AppServerClient") as client_type:
                 client_type.return_value.request.side_effect = lambda method, params=None: responses[method]
                 result = probe_app_server(Path(temporary), BRIDGE.parent)
@@ -43,7 +53,7 @@ class CodexAppServerProbeTests(unittest.TestCase):
         client_type.return_value.close.assert_called_once()
 
     def test_probe_reports_logged_out_without_calling_account_data_apis(self) -> None:
-        with tempfile.TemporaryDirectory(dir=BRIDGE.parent / ".codx") as temporary:
+        with temporary_directory() as temporary:
             with mock.patch("codex_app_server.AppServerClient") as client_type:
                 client_type.return_value.request.return_value = {"account": None, "requiresOpenaiAuth": True}
                 result = probe_app_server(Path(temporary), BRIDGE.parent)

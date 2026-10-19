@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sys
-import tempfile
+from dotii_test_support import temporary_directory
 import unittest
 import json
 import plistlib
@@ -15,6 +15,7 @@ sys.path.insert(0, str(BRIDGE))
 import bambu_client  # noqa: E402
 import codex_app_server  # noqa: E402
 import codex_bridge  # noqa: E402
+from runtime_paths import project_version  # noqa: E402
 from platforms.macos import MacOSPlatformAdapter  # noqa: E402
 from platforms.windows import WindowsPlatformAdapter  # noqa: E402
 from bambu_client import BambuConfigStore, BambuService  # noqa: E402
@@ -36,7 +37,7 @@ class ModuleOnDemandTests(unittest.TestCase):
             "account": {"logged_in": True, "email": "user@example.com", "plan_type": "plus"},
             "checks": {"rate_limits": True, "usage": True, "threads": True},
         }
-        with tempfile.TemporaryDirectory(dir=BRIDGE.parent / ".codx") as temporary:
+        with temporary_directory() as temporary:
             path = Path(temporary) / "codex-check.json"
             CodexCheckStore(path).write(result)
 
@@ -54,6 +55,7 @@ class ModuleOnDemandTests(unittest.TestCase):
         self.assertIn("$BundledFirmwareManifest", script)
         self.assertIn("$RefreshFirmwareBundle = $false", script)
 
+    @unittest.skipUnless((BRIDGE.parent / "packaging/macos/Info.plist").is_file(), "macOS packaging is not included in this Windows checkout")
     def test_macos_info_plist_declares_bluetooth_usage(self):
         plist_path = BRIDGE.parent / "packaging" / "macos" / "Info.plist"
         with plist_path.open("rb") as stream:
@@ -62,9 +64,10 @@ class ModuleOnDemandTests(unittest.TestCase):
         self.assertEqual(info["LSMinimumSystemVersion"], "13.0")
         self.assertIn("Dotii", info["NSBluetoothAlwaysUsageDescription"])
         self.assertIn("Dotii", info["NSLocalNetworkUsageDescription"])
-        self.assertEqual(info["CFBundleShortVersionString"], "1.1.1")
+        self.assertEqual(info["CFBundleShortVersionString"], project_version(BRIDGE.parent))
         self.assertEqual(info["CFBundleIconName"], "AppIcon")
 
+    @unittest.skipUnless((BRIDGE.parent / "macos").is_dir(), "macOS host is not included in this Windows checkout")
     def test_macos_brand_icons_are_complete_and_used_by_native_host(self):
         root = BRIDGE.parent
         app_root = root / "macos" / "DotiiManagementCenter" / "DotiiManagementCenter"
@@ -82,6 +85,7 @@ class ModuleOnDemandTests(unittest.TestCase):
         self.assertIn('NSImage(named: "StatusBarIcon")', swift)
         self.assertIn("isTemplate = true", swift)
 
+    @unittest.skipUnless((BRIDGE.parent / "macos").is_dir(), "macOS host is not included in this Windows checkout")
     def test_macos_native_host_and_packaging_sources_are_present(self):
         root = BRIDGE.parent
         swift = (root / "macos" / "DotiiManagementCenter" / "DotiiManagementCenter" / "main.swift").read_text(encoding="utf-8")
@@ -173,7 +177,7 @@ class ModuleOnDemandTests(unittest.TestCase):
             self.assertTrue(asset.is_file(), animation["id"])
 
     def test_bundled_codex_app_server_command_uses_bundled_node(self):
-        with tempfile.TemporaryDirectory(dir=BRIDGE.parent / ".codx") as temporary:
+        with temporary_directory() as temporary:
             folder = Path(temporary)
             script = (
                 folder
@@ -202,7 +206,7 @@ class ModuleOnDemandTests(unittest.TestCase):
             self.assertEqual(command, [str(node), str(script)])
 
     def test_bundled_ffmpeg_is_preferred_over_path(self):
-        with tempfile.TemporaryDirectory(dir=BRIDGE.parent / ".codx") as temporary:
+        with temporary_directory() as temporary:
             folder = Path(temporary)
             bundled = folder / "tools" / "ffmpeg" / "bin" / "ffmpeg.exe"
             bundled.parent.mkdir(parents=True)
@@ -219,7 +223,7 @@ class ModuleOnDemandTests(unittest.TestCase):
             self.assertEqual(resolved, str(bundled.resolve()))
 
     def test_macos_bundled_codex_uses_unix_node_without_path_lookup(self):
-        with tempfile.TemporaryDirectory(dir=BRIDGE.parent / ".codx") as temporary:
+        with temporary_directory() as temporary:
             folder = Path(temporary)
             script = (
                 folder
@@ -248,7 +252,7 @@ class ModuleOnDemandTests(unittest.TestCase):
             self.assertEqual(command, [str(node), str(script)])
 
     def test_macos_bundled_ffmpeg_is_preferred_without_path_lookup(self):
-        with tempfile.TemporaryDirectory(dir=BRIDGE.parent / ".codx") as temporary:
+        with temporary_directory() as temporary:
             folder = Path(temporary)
             bundled = folder / "tools" / "ffmpeg" / "bin" / "ffmpeg"
             bundled.parent.mkdir(parents=True)
@@ -265,7 +269,7 @@ class ModuleOnDemandTests(unittest.TestCase):
             self.assertEqual(resolved, str(bundled.resolve()))
 
     def test_bambu_snapshot_does_not_check_ffmpeg_until_rtsps_path_runs(self):
-        with tempfile.TemporaryDirectory(dir=BRIDGE.parent / ".codx") as temporary:
+        with temporary_directory() as temporary:
             config = BambuConfigStore(Path(temporary) / "bambu.json")
             config.write(
                 {
@@ -284,7 +288,7 @@ class ModuleOnDemandTests(unittest.TestCase):
             ffmpeg.assert_not_called()
 
     def test_disabling_bambu_closes_mqtt_and_camera_runtime(self):
-        with tempfile.TemporaryDirectory(dir=BRIDGE.parent / ".codx") as temporary:
+        with temporary_directory() as temporary:
             config = BambuConfigStore(Path(temporary) / "bambu.json")
             config.write({"host": "192.0.2.10", "serial": "01P00A000000000", "access_code": "12345678"})
             enabled = {"value": True}
@@ -337,12 +341,13 @@ class ModuleOnDemandTests(unittest.TestCase):
         self.assertNotIn('byId("bluetooth-current-token")', script)
         self.assertIn("长按“重置配网”", html)
         self.assertIn('current_token=payload.get("current_token", "")', backend)
-        self.assertIn('connected ? "已连接" : recognized ? "已识别"', script)
-        self.assertIn('blocked ? "需要处理"', script)
+        self.assertIn('connected ? t("已连接") : recognized ? t("已识别")', script)
+        self.assertIn('blocked ? t("需要处理")', script)
         self.assertIn("已识别 Dotii ESP32-S3，可执行固件烧录", script)
         self.assertIn("登录系统后自动启动", html)
         self.assertNotIn("登录 Windows 后自动启动", html)
 
+    @unittest.skipUnless((BRIDGE.parent / "packaging/macos/build_macos.sh").is_file(), "macOS packaging is not included in this Windows checkout")
     def test_macos_build_rejects_stale_bundled_web_assets(self):
         packaging = (BRIDGE.parent / "packaging" / "macos" / "build_macos.sh").read_text(
             encoding="utf-8"

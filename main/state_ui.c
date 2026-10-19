@@ -1,3 +1,4 @@
+#include "ui_language.h"
 #include "state_ui.h"
 
 #include <stdio.h>
@@ -138,6 +139,7 @@ static lv_obj_t *s_dotii_quick;
 static lv_obj_t *s_page_dots[PAGE_COUNT][PAGE_COUNT];
 static lv_point_t s_press_point;
 static uint8_t s_battery = 0xFF;
+static bool s_charging;
 static int s_brightness = 64;
 static int16_t s_display_angle_tenths = DISPLAY_ANGLE_DEFAULT_TENTHS;
 static uint32_t s_display_revision;
@@ -218,6 +220,9 @@ static void set_screen_background(lv_obj_t *screen)
     lv_obj_set_style_text_color(screen, color(COLOR_TEXT), 0);
     lv_obj_set_style_text_font(screen, &ui_font_detail_20, 0);
 }
+
+#define lv_label_set_text ui_label_set_text
+#define lv_label_set_text_fmt ui_label_set_text_fmt
 
 static lv_obj_t *make_label(lv_obj_t *parent, const char *text, const lv_font_t *font, uint32_t text_color)
 {
@@ -640,13 +645,13 @@ static void provisioning_reset_anim_done(lv_anim_t *animation)
     (void)animation;
     esp_err_t config_error = device_config_clear_provisioning();
     if (config_error != ESP_OK) {
-        lv_label_set_text(s_settings_reset_detail, "重置失败，请重试");
+        lv_label_set_text(s_settings_reset_detail, ui_tr("重置失败，请重试"));
         lv_obj_set_style_bg_color(s_settings_reset_button, color(0x321A1A), 0);
         lv_obj_set_style_bg_color(s_settings_reset_button, color(0x4A2422), LV_STATE_PRESSED);
         return;
     }
     (void)ble_bridge_clear_bonds();
-    lv_label_set_text(s_settings_reset_detail, "已清除，正在重新启动");
+    lv_label_set_text(s_settings_reset_detail, ui_tr("已清除，正在重新启动"));
     esp_restart();
 }
 
@@ -655,7 +660,7 @@ static void provisioning_reset_event(lv_event_t *event)
     lv_event_code_t code = lv_event_get_code(event);
     lv_obj_t *button = lv_event_get_current_target(event);
     if (code == LV_EVENT_PRESSED) {
-        lv_label_set_text(s_settings_reset_detail, "继续按住以确认");
+        lv_label_set_text(s_settings_reset_detail, ui_tr("继续按住以确认"));
         lv_anim_t animation;
         lv_anim_init(&animation);
         lv_anim_set_var(&animation, button);
@@ -668,7 +673,7 @@ static void provisioning_reset_event(lv_event_t *event)
         lv_anim_delete(button, provisioning_reset_hold_anim_exec);
         lv_obj_set_style_bg_color(button, color(0x321A1A), 0);
         lv_obj_set_style_bg_color(button, color(0x4A2422), LV_STATE_PRESSED);
-        lv_label_set_text(s_settings_reset_detail, "长按 1.2 秒，清除配网信息");
+        lv_label_set_text(s_settings_reset_detail, ui_tr("长按 1.2 秒，清除配网信息"));
     }
 }
 
@@ -762,7 +767,7 @@ static void make_reset_metric(lv_obj_t *parent, int x)
 
     s_reset_day = make_label(value_row, "08-18", &lv_font_montserrat_22, COLOR_TEXT);
     s_reset_time = make_label(value_row, "10:00", &lv_font_montserrat_18, COLOR_TEXT);
-    lv_obj_t *caption = make_label(box, "额度重置", &s_ui_font, COLOR_MUTED);
+    lv_obj_t *caption = make_label(box, ui_tr("额度重置"), &s_ui_font, COLOR_MUTED);
     lv_obj_set_style_transform_scale(caption, 282, 0);
     lv_obj_align(caption, LV_ALIGN_BOTTOM_MID, 0, 1);
 }
@@ -884,7 +889,7 @@ static void build_main(void)
     s_time_main = make_label(s_main_content, "--:--", &lv_font_montserrat_20, COLOR_MUTED);
     lv_obj_align(s_time_main, LV_ALIGN_TOP_MID, 0, 82);
 
-    lv_obj_t *kicker = make_label(s_main_content, "周剩余", &ui_font_chinese_semibold_24, COLOR_MUTED);
+    lv_obj_t *kicker = make_label(s_main_content, ui_tr("周剩余"), &ui_font_chinese_semibold_24, COLOR_MUTED);
     lv_obj_align(kicker, LV_ALIGN_CENTER, 0, -82);
     s_percent = make_label(s_main_content, "68%", &ui_font_digits_64, COLOR_TEXT);
     lv_obj_set_style_transform_scale(s_percent, 282, 0);
@@ -910,7 +915,7 @@ static void build_main(void)
     lv_obj_set_style_radius(s_status_dot, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_color(s_status_dot, color(COLOR_GREEN), 0);
     lv_obj_set_style_bg_opa(s_status_dot, LV_OPA_COVER, 0);
-    s_status = make_label(s_status_pill, "工作中", &s_ui_font, COLOR_GREEN);
+    s_status = make_label(s_status_pill, ui_tr("工作中"), &s_ui_font, COLOR_GREEN);
     lv_obj_set_size(s_status, 82, 22);
     lv_obj_set_style_text_align(s_status, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_transform_scale(s_status, 282, 0);
@@ -919,7 +924,7 @@ static void build_main(void)
     lv_obj_set_style_text_outline_stroke_opa(s_status, LV_OPA_COVER, 0);
     lv_obj_align(s_status_pill, LV_ALIGN_CENTER, 0, 52);
 
-    s_weekly_tokens = make_metric(s_main_content, "18.4k", "近7日 Token", 92);
+    s_weekly_tokens = make_metric(s_main_content, "18.4k", ui_tr("近7日 Token"), 92);
     make_reset_metric(s_main_content, 242);
 
     lv_obj_t *divider = lv_obj_create(s_main_content);
@@ -975,7 +980,7 @@ static void make_five_hour_title(lv_obj_t *parent, int32_t y)
     lv_obj_t *title_gap = lv_obj_create(row);
     lv_obj_remove_style_all(title_gap);
     lv_obj_set_size(title_gap, 2, 1);
-    make_label(row, "剩余", &ui_font_chinese_semibold_24, COLOR_ORANGE);
+    make_label(row, ui_tr("剩余"), &ui_font_chinese_semibold_24, COLOR_ORANGE);
 }
 
 static lv_obj_t *make_usage_reset_row(lv_obj_t *parent, int32_t y,
@@ -1000,7 +1005,7 @@ static lv_obj_t *make_usage_reset_row(lv_obj_t *parent, int32_t y,
     lv_obj_t *suffix_gap = lv_obj_create(row);
     lv_obj_remove_style_all(suffix_gap);
     lv_obj_set_size(suffix_gap, 6, 1);
-    make_label(row, "重置", &s_ui_font, COLOR_MUTED);
+    make_label(row, ui_tr("重置"), &s_ui_font, COLOR_MUTED);
     return value;
 }
 
@@ -1070,7 +1075,7 @@ static void build_plus_main(void)
     lv_obj_remove_style_all(status_right_gap);
     lv_obj_set_size(status_right_gap, 12, 1);
 
-    s_plus_status = make_label(status_content, "工作中", &s_ui_font, COLOR_GREEN);
+    s_plus_status = make_label(status_content, ui_tr("工作中"), &s_ui_font, COLOR_GREEN);
     lv_obj_set_height(s_plus_status, 26);
     lv_obj_set_style_text_align(s_plus_status, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_transform_scale(s_plus_status, 310, 0);
@@ -1078,7 +1083,7 @@ static void build_plus_main(void)
     lv_obj_set_style_text_outline_stroke_width(s_plus_status, 2, 0);
     lv_obj_set_style_text_outline_stroke_opa(s_plus_status, LV_OPA_COVER, 0);
 
-    lv_obj_t *weekly_title = make_label(s_plus_main, "周剩余", &ui_font_chinese_semibold_24,
+    lv_obj_t *weekly_title = make_label(s_plus_main, ui_tr("周剩余"), &ui_font_chinese_semibold_24,
                                         COLOR_BLUE_USAGE);
     lv_obj_align(weekly_title, LV_ALIGN_TOP_MID, 0, 278);
     s_plus_weekly_percent = make_label(s_plus_main, "--", &ui_font_digits_64, COLOR_TEXT);
@@ -1146,8 +1151,8 @@ static void set_weekly_reset_text(lv_obj_t *day_label, lv_obj_t *time_label,
             reset.tm_year -= 1;
             reset_at = mktime(&reset);
         }
-        static const char *const weekdays[] = {
-            "周日", "周一", "周二", "周三", "周四", "周五", "周六",
+        const char *const weekdays[] = {
+            ui_tr("周日"), ui_tr("周一"), ui_tr("周二"), ui_tr("周三"), ui_tr("周四"), ui_tr("周五"), ui_tr("周六"),
         };
         struct tm reset_local;
         localtime_r(&reset_at, &reset_local);
@@ -1200,7 +1205,7 @@ static lv_obj_t *make_bubble(lv_obj_t *parent, const char *speaker, bool user)
 
 static bool update_assistant_messages(const char *text)
 {
-    const char *render_text = text != NULL && text[0] ? text : "暂无 Codex 消息";
+    const char *render_text = text != NULL && text[0] ? text : ui_tr("暂无 Codex 消息");
     if (s_rendered_conversation != NULL && strcmp(s_rendered_conversation, render_text) == 0) return false;
     size_t render_size = strlen(render_text) + 1;
     char *cache = heap_caps_realloc(s_rendered_conversation, render_size,
@@ -1285,30 +1290,30 @@ static void render_codex_detail(void)
                         previous_updated_at != s_detail_task->updated_at;
     strlcpy(s_detail_thread_id, s_detail_task->thread_id, sizeof(s_detail_thread_id));
 
-    lv_label_set_text(s_detail_title, s_detail_task->title[0] ? s_detail_task->title : "暂无任务");
-    lv_label_set_text_fmt(s_detail_meta, "%s · %lu 分钟",
+    lv_label_set_text(s_detail_title, s_detail_task->title[0] ? s_detail_task->title : ui_tr("暂无任务"));
+    lv_label_set_text_fmt(s_detail_meta, ui_tr("%s · %lu 分钟"),
                           app_state_status_text(s_detail_task->status),
                           (unsigned long)(s_detail_task->duration_seconds / 60));
     lv_label_set_text(s_user_message, s_detail_task->last_user_message != NULL &&
                       s_detail_task->last_user_message[0] ?
-                      s_detail_task->last_user_message : "暂无用户消息");
+                      s_detail_task->last_user_message : ui_tr("暂无用户消息"));
     lv_label_set_text(s_assistant_speaker,
                       s_detail_task->conversation_mode == CODEX_CONVERSATION_PROGRESS ?
-                          "Codex 中间消息" :
+                          ui_tr("Codex 中间消息") :
                       s_detail_task->conversation_mode == CODEX_CONVERSATION_HISTORY ?
-                          "Codex 最终回复" : "Codex 最终回复");
+                          ui_tr("Codex 最终回复") : ui_tr("Codex 最终回复"));
     bool conversation_changed = update_assistant_messages(s_detail_task->conversation_text);
     if (entering_detail || thread_changed || task_changed || conversation_changed) {
         position_codex_detail(s_detail_task->status);
     }
 
-    static const char *task_numbers[] = {"一", "二", "三", "四", "五", "六"};
+    const char *task_numbers[] = {ui_tr("一"), ui_tr("二"), ui_tr("三"), ui_tr("四"), ui_tr("五"), ui_tr("六")};
     if (s_detail_task_count > 1) {
-        lv_label_set_text_fmt(s_detail_footer, "任务%s · %lu 消息",
+        lv_label_set_text_fmt(s_detail_footer, ui_tr("任务%s · %lu 消息"),
                               task_numbers[s_detail_task_index],
                               (unsigned long)s_detail_task->message_count);
     } else {
-        lv_label_set_text_fmt(s_detail_footer, "%lu 消息",
+        lv_label_set_text_fmt(s_detail_footer, ui_tr("%lu 消息"),
                               (unsigned long)s_detail_task->message_count);
     }
     if (s_current == s_detail) lv_obj_invalidate(s_detail);
@@ -1324,12 +1329,12 @@ static void build_detail(void)
 
     s_time_detail = make_label(safe, "--:--", &lv_font_montserrat_16, COLOR_MUTED);
     lv_obj_align(s_time_detail, LV_ALIGN_TOP_MID, 0, -34);
-    s_detail_title = make_centered_title(safe, "开发 Codex 状态页面",
+    s_detail_title = make_centered_title(safe, ui_tr("开发 Codex 状态页面"),
                                          &ui_font_detail_20, 336, 282, 1, 2);
     lv_label_set_long_mode(s_detail_title, LV_LABEL_LONG_DOT);
     lv_obj_set_style_bg_color(s_detail_title, color(COLOR_BG), 0);
     lv_obj_set_style_bg_opa(s_detail_title, LV_OPA_COVER, 0);
-    s_detail_meta = make_label(s_detail, "工作中 · 12 分钟", &s_ui_font, COLOR_BLUE);
+    s_detail_meta = make_label(s_detail, ui_tr("工作中 · 12 分钟"), &s_ui_font, COLOR_BLUE);
     lv_obj_set_style_bg_color(s_detail_meta, color(COLOR_BG), 0);
     lv_obj_set_style_bg_opa(s_detail_meta, LV_OPA_COVER, 0);
     lv_obj_align(s_detail_meta, LV_ALIGN_TOP_MID, 0, 24);
@@ -1344,16 +1349,18 @@ static void build_detail(void)
     lv_obj_set_style_pad_row(s_detail_chat, 10, 0);
     lv_obj_add_flag(s_detail_chat, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_scroll_dir(s_detail_chat, LV_DIR_VER);
-    s_user_message = make_bubble(s_detail_chat, "你", true);
+    s_user_message = make_bubble(s_detail_chat, ui_tr("你"), true);
     s_assistant_message = make_bubble(s_detail_chat, "Codex", false);
 
-    s_detail_footer = make_label(s_detail, "12 消息", &s_ui_font, COLOR_MUTED);
+    s_detail_footer = make_label(s_detail, ui_tr("12 消息"), &s_ui_font, COLOR_MUTED);
     lv_obj_set_style_bg_color(s_detail_footer, color(COLOR_BG), 0);
     lv_obj_set_style_bg_opa(s_detail_footer, LV_OPA_COVER, 0);
-    lv_obj_set_size(s_detail_footer, 260, 24);
+    /* Extend the clip box downward for Latin descenders. Compensate the
+       bottom anchor by the same 4 px so the text origin/baseline stays put. */
+    lv_obj_set_size(s_detail_footer, 260, 28);
     lv_obj_set_style_text_align(s_detail_footer, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_pad_top(s_detail_footer, 2, 0);
-    lv_obj_align(s_detail_footer, LV_ALIGN_BOTTOM_MID, 0, -14);
+    lv_obj_align(s_detail_footer, LV_ALIGN_BOTTOM_MID, 0, -10);
     register_page_scroll_target(s_detail, s_detail_chat);
 }
 
@@ -1436,7 +1443,7 @@ static void build_bambu(void)
     s_time_bambu_main = make_label(content, "--:--", &lv_font_montserrat_20, COLOR_MUTED);
     lv_obj_align(s_time_bambu_main, LV_ALIGN_TOP_MID, 0, 82);
 
-    lv_obj_t *kicker = make_label(content, "打印进度", &ui_font_bambu_semibold_24, COLOR_MUTED);
+    lv_obj_t *kicker = make_label(content, ui_tr("打印进度"), &ui_font_bambu_semibold_24, COLOR_MUTED);
     lv_obj_align(kicker, LV_ALIGN_CENTER, 0, -82);
     s_bambu_percent = make_label(content, "--", &ui_font_digits_64, COLOR_TEXT);
     lv_obj_set_style_transform_scale(s_bambu_percent, 282, 0);
@@ -1463,7 +1470,7 @@ static void build_bambu(void)
     lv_obj_set_style_radius(s_bambu_status_dot, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_color(s_bambu_status_dot, color(COLOR_BAMBU), 0);
     lv_obj_set_style_bg_opa(s_bambu_status_dot, LV_OPA_COVER, 0);
-    s_bambu_status = make_label(s_bambu_status_pill, "离线", &s_ui_font, COLOR_BAMBU);
+    s_bambu_status = make_label(s_bambu_status_pill, ui_tr("离线"), &s_ui_font, COLOR_BAMBU);
     lv_obj_set_size(s_bambu_status, 82, 22);
     lv_obj_set_style_text_align(s_bambu_status, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_transform_scale(s_bambu_status, 282, 0);
@@ -1472,8 +1479,8 @@ static void build_bambu(void)
     lv_obj_set_style_text_outline_stroke_opa(s_bambu_status, LV_OPA_COVER, 0);
     lv_obj_align(s_bambu_status_pill, LV_ALIGN_CENTER, 0, 52);
 
-    s_bambu_remaining = make_bambu_metric(content, "剩余时间", 92);
-    s_bambu_finish = make_bambu_metric(content, "预计完成", 242);
+    s_bambu_remaining = make_bambu_metric(content, ui_tr("剩余时间"), 92);
+    s_bambu_finish = make_bambu_metric(content, ui_tr("预计完成"), 242);
 
     lv_obj_t *divider = lv_obj_create(content);
     lv_obj_remove_style_all(divider);
@@ -1494,7 +1501,7 @@ static void build_bambu(void)
     lv_obj_align(s_time_bambu_detail, LV_ALIGN_TOP_MID, 0, -34);
     /* The title intentionally extends above the 358 px layout box. Keep it on
      * the full-screen layer so the safe container cannot clip its top edge. */
-    make_centered_title(s_bambu_detail, "打印详情", &ui_font_bambu_semibold_24, 336, 256, 1, 50);
+    make_centered_title(s_bambu_detail, ui_tr("打印详情"), &ui_font_bambu_semibold_24, 336, 256, 1, 50);
 
     lv_obj_t *camera_box = lv_obj_create(safe);
     lv_obj_set_size(camera_box, 350, 197);
@@ -1511,7 +1518,7 @@ static void build_bambu(void)
     lv_image_set_scale(s_bambu_camera, 280);
     lv_obj_center(s_bambu_camera);
     lv_obj_add_flag(s_bambu_camera, LV_OBJ_FLAG_HIDDEN);
-    s_bambu_camera_empty = make_label(camera_box, "相机画面暂不可用", &s_ui_font, COLOR_MUTED);
+    s_bambu_camera_empty = make_label(camera_box, ui_tr("相机画面暂不可用"), &s_ui_font, COLOR_MUTED);
     lv_obj_set_style_transform_scale(s_bambu_camera_empty, 282, 0);
     lv_obj_center(s_bambu_camera_empty);
 
@@ -1520,10 +1527,10 @@ static void build_bambu(void)
     lv_label_set_long_mode(s_bambu_filename, LV_LABEL_LONG_DOT);
     lv_obj_set_style_text_align(s_bambu_filename, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(s_bambu_filename, LV_ALIGN_TOP_MID, 0, 239);
-    s_bambu_filament = make_label(safe, "耗材 --", &s_ui_font, COLOR_MUTED);
+    s_bambu_filament = make_label(safe, ui_tr("耗材 --"), &s_ui_font, COLOR_MUTED);
     lv_obj_set_style_transform_scale(s_bambu_filament, 282, 0);
     lv_obj_align(s_bambu_filament, LV_ALIGN_TOP_LEFT, 18, 270);
-    s_bambu_layer = make_label(safe, "层数 --", &s_ui_font, COLOR_MUTED);
+    s_bambu_layer = make_label(safe, ui_tr("层数 --"), &s_ui_font, COLOR_MUTED);
     lv_obj_set_style_transform_scale(s_bambu_layer, 282, 0);
     lv_obj_align(s_bambu_layer, LV_ALIGN_TOP_RIGHT, -18, 270);
 
@@ -1595,25 +1602,25 @@ static void build_custom(void)
     lv_obj_remove_style(s_custom_ring, NULL, LV_PART_KNOB);
     lv_obj_remove_flag(s_custom_ring, LV_OBJ_FLAG_CLICKABLE);
 
-    s_custom_title = make_label(content, "我的页面", &ui_font_detail_20, COLOR_MUTED);
+    s_custom_title = make_label(content, ui_tr("我的页面"), &ui_font_detail_20, COLOR_MUTED);
     lv_label_set_long_mode(s_custom_title, LV_LABEL_LONG_DOT);
     lv_obj_set_width(s_custom_title, 280);
     lv_obj_set_style_text_align(s_custom_title, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(s_custom_title, LV_ALIGN_TOP_MID, 0, 54);
 
-    s_custom_value = make_label(content, "你好，Dotii", &ui_font_detail_20, COLOR_WARNING);
+    s_custom_value = make_label(content, ui_tr("你好，Dotii"), &ui_font_detail_20, COLOR_WARNING);
     lv_label_set_long_mode(s_custom_value, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(s_custom_value, 304);
     lv_obj_set_style_text_align(s_custom_value, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(s_custom_value, LV_ALIGN_CENTER, 0, -52);
 
-    s_custom_body = make_label(content, "在电脑端编辑内容，保存后会自动同步到设备。", &ui_font_detail_20, 0xC6D0CC);
+    s_custom_body = make_label(content, ui_tr("在电脑端编辑内容，保存后会自动同步到设备。"), &ui_font_detail_20, 0xC6D0CC);
     lv_label_set_long_mode(s_custom_body, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(s_custom_body, 300);
     lv_obj_set_style_text_align(s_custom_body, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(s_custom_body, LV_ALIGN_CENTER, 0, 32);
 
-    s_custom_footer = make_label(content, "自定义内容", &ui_font_detail_20, COLOR_MUTED);
+    s_custom_footer = make_label(content, ui_tr("自定义内容"), &ui_font_detail_20, COLOR_MUTED);
     lv_label_set_long_mode(s_custom_footer, LV_LABEL_LONG_DOT);
     lv_obj_set_width(s_custom_footer, 270);
     lv_obj_set_style_text_align(s_custom_footer, LV_TEXT_ALIGN_CENTER, 0);
@@ -1901,9 +1908,9 @@ static void build_control(void)
     add_activity_event(s_control);
     lv_obj_add_event_cb(s_control, swipe_event, LV_EVENT_GESTURE, NULL);
     lv_obj_t *safe = make_safe(s_control);
-    make_centered_title(safe, "控制中心", &s_ui_font, 200, 346, 2, 7);
+    make_centered_title(safe, ui_tr("控制中心"), &s_ui_font, 200, 346, 2, 7);
 
-    lv_obj_t *brightness = make_label(safe, "屏幕亮度", &s_ui_font, COLOR_MUTED);
+    lv_obj_t *brightness = make_label(safe, ui_tr("屏幕亮度"), &s_ui_font, COLOR_MUTED);
     lv_obj_set_style_transform_scale(brightness, 282, 0);
     lv_obj_set_pos(brightness, 12, 59);
     s_brightness_slider = lv_slider_create(safe);
@@ -1936,7 +1943,7 @@ static void build_control(void)
     lv_obj_add_event_cb(s_custom_quick, quick_clicked, LV_EVENT_CLICKED, s_custom);
     lv_obj_add_event_cb(s_dotii_quick, quick_clicked, LV_EVENT_CLICKED, s_dotii);
 
-    s_battery_label = make_label(safe, "电量 --", &s_ui_font, COLOR_MUTED);
+    s_battery_label = make_label(safe, ui_tr("电量 --"), &s_ui_font, COLOR_MUTED);
     lv_obj_set_width(s_battery_label, 300);
     lv_label_set_long_mode(s_battery_label, LV_LABEL_LONG_DOT);
     lv_obj_set_style_text_align(s_battery_label, LV_TEXT_ALIGN_CENTER, 0);
@@ -1975,7 +1982,7 @@ static void build_settings(void)
     add_activity_event(s_settings);
     lv_obj_add_event_cb(s_settings, swipe_event, LV_EVENT_GESTURE, NULL);
     lv_obj_t *safe = make_safe(s_settings);
-    make_centered_title(safe, "设置", &ui_font_detail_20, 336, 256, 1, -2);
+    make_centered_title(safe, ui_tr("设置"), &ui_font_detail_20, 336, 256, 1, -2);
 
     s_settings_list = lv_obj_create(safe);
     lv_obj_remove_style_all(s_settings_list);
@@ -1990,17 +1997,17 @@ static void build_settings(void)
     lv_obj_set_height(refresh, 54);
     lv_obj_set_style_radius(refresh, 18, 0);
     lv_obj_set_style_bg_color(refresh, color(COLOR_BLUE_DARK), 0);
-    lv_obj_t *refresh_text = make_label(refresh, "立即刷新数据", &ui_font_detail_20, COLOR_TEXT);
+    lv_obj_t *refresh_text = make_label(refresh, ui_tr("立即刷新数据"), &ui_font_detail_20, COLOR_TEXT);
     lv_obj_center(refresh_text);
     lv_obj_add_event_cb(refresh, refresh_clicked, LV_EVENT_CLICKED, NULL);
 
-    s_settings_wifi = make_setting_card(s_settings_list, "网络", "未配置");
-    s_settings_ip = make_setting_card(s_settings_list, "设备地址", "IP --");
-    s_settings_bridge = make_setting_card(s_settings_list, "Codex 数据源", "未配置");
+    s_settings_wifi = make_setting_card(s_settings_list, ui_tr("网络"), ui_tr("未配置"));
+    s_settings_ip = make_setting_card(s_settings_list, ui_tr("设备地址"), "IP --");
+    s_settings_bridge = make_setting_card(s_settings_list, ui_tr("Codex 数据源"), ui_tr("未配置"));
     char device_info[72];
     snprintf(device_info, sizeof(device_info), "Dotii %s · ESP-IDF %s",
              esp_app_get_description()->version, esp_get_idf_version());
-    make_setting_card(s_settings_list, "设备", device_info);
+    make_setting_card(s_settings_list, ui_tr("设备"), device_info);
 
     s_settings_reset_button = lv_button_create(s_settings_list);
     lv_obj_remove_style_all(s_settings_reset_button);
@@ -2018,12 +2025,12 @@ static void build_settings(void)
                           LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
     lv_obj_set_style_pad_row(s_settings_reset_button, 4, 0);
     lv_obj_remove_flag(s_settings_reset_button, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_t *reset_title = make_label(s_settings_reset_button, "重置配网", &ui_font_detail_20, COLOR_DANGER);
+    lv_obj_t *reset_title = make_label(s_settings_reset_button, ui_tr("重置配网"), &ui_font_detail_20, COLOR_DANGER);
     lv_obj_set_width(reset_title, LV_PCT(100));
     lv_label_set_long_mode(reset_title, LV_LABEL_LONG_DOT);
     lv_obj_set_style_text_align(reset_title, LV_TEXT_ALIGN_LEFT, 0);
     s_settings_reset_detail = make_label(s_settings_reset_button,
-                                         "长按 1.2 秒，清除配网信息",
+                                         ui_tr("长按 1.2 秒，清除配网信息"),
                                          &ui_font_detail_20, COLOR_MUTED);
     lv_obj_set_width(s_settings_reset_detail, LV_PCT(100));
     lv_label_set_long_mode(s_settings_reset_detail, LV_LABEL_LONG_WRAP);
@@ -2041,7 +2048,7 @@ static void build_power(void)
     add_activity_event(s_power);
     lv_obj_add_event_cb(s_power, swipe_event, LV_EVENT_GESTURE, NULL);
     lv_obj_t *safe = make_safe(s_power);
-    make_centered_title(safe, "电源", &s_ui_font, 200, 346, 2, 7);
+    make_centered_title(safe, ui_tr("电源"), &s_ui_font, 200, 346, 2, 7);
 
     lv_obj_t *restart = lv_button_create(safe);
     lv_obj_set_size(restart, 156, 132);
@@ -2051,7 +2058,7 @@ static void build_power(void)
     lv_obj_set_style_bg_color(restart, color(0x214F3A), LV_STATE_PRESSED);
     lv_obj_t *restart_icon = make_label(restart, LV_SYMBOL_REFRESH, &lv_font_montserrat_32, COLOR_GREEN);
     lv_obj_align(restart_icon, LV_ALIGN_CENTER, 0, -24);
-    lv_obj_t *restart_text = make_label(restart, "重新启动", &ui_font_detail_20, COLOR_GREEN);
+    lv_obj_t *restart_text = make_label(restart, ui_tr("重新启动"), &ui_font_detail_20, COLOR_GREEN);
     lv_obj_set_width(restart_text, 132);
     lv_obj_set_style_text_align(restart_text, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(restart_text, LV_ALIGN_CENTER, 0, 24);
@@ -2065,13 +2072,13 @@ static void build_power(void)
     lv_obj_set_style_bg_color(shutdown, color(0x572725), LV_STATE_PRESSED);
     lv_obj_t *shutdown_icon = make_label(shutdown, LV_SYMBOL_POWER, &lv_font_montserrat_32, COLOR_DANGER);
     lv_obj_align(shutdown_icon, LV_ALIGN_CENTER, 0, -24);
-    lv_obj_t *shutdown_text = make_label(shutdown, "关机", &ui_font_detail_20, COLOR_DANGER);
+    lv_obj_t *shutdown_text = make_label(shutdown, ui_tr("关机"), &ui_font_detail_20, COLOR_DANGER);
     lv_obj_set_width(shutdown_text, 132);
     lv_obj_set_style_text_align(shutdown_text, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(shutdown_text, LV_ALIGN_CENTER, 0, 24);
     lv_obj_add_event_cb(shutdown, shutdown_event, LV_EVENT_ALL, NULL);
 
-    lv_obj_t *hint = make_label(safe, "按住 1.2 秒确认\n向右滑动取消", &ui_font_detail_20, COLOR_MUTED);
+    lv_obj_t *hint = make_label(safe, ui_tr("按住 1.2 秒确认\n向右滑动取消"), &ui_font_detail_20, COLOR_MUTED);
     lv_obj_set_width(hint, 330);
     lv_label_set_long_mode(hint, LV_LABEL_LONG_WRAP);
     lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, 0);
@@ -2210,7 +2217,6 @@ static void update_snapshot(const codex_snapshot_t *snapshot)
                                      snapshot->bambu_status == BAMBU_STATUS_PAUSED ? COLOR_WARNING : COLOR_BAMBU),
                                LV_PART_INDICATOR);
     lv_label_set_text(s_bambu_status,
-                      snapshot->bambu_status_text[0] ? snapshot->bambu_status_text :
                       app_state_bambu_status_text(snapshot->bambu_status));
     lv_obj_set_style_text_color(s_bambu_status, color(bambu_status_color), 0);
     lv_obj_set_style_text_outline_stroke_color(s_bambu_status, color(bambu_status_color), 0);
@@ -2233,12 +2239,12 @@ static void update_snapshot(const codex_snapshot_t *snapshot)
         lv_label_set_text_fmt(s_bambu_finish, "%02d:%02d", finish_local.tm_hour, finish_local.tm_min);
     } else lv_label_set_text(s_bambu_finish, "--");
     lv_label_set_text(s_bambu_filename, snapshot->bambu_filename[0] ? snapshot->bambu_filename : "--");
-    lv_label_set_text_fmt(s_bambu_filament, "耗材 %s",
+    lv_label_set_text_fmt(s_bambu_filament, ui_tr("耗材 %s"),
                           snapshot->bambu_filament[0] ? snapshot->bambu_filament : "--");
     if (snapshot->bambu_layer_total > 0) {
-        lv_label_set_text_fmt(s_bambu_layer, "层数 %u/%u",
+        lv_label_set_text_fmt(s_bambu_layer, ui_tr("层数 %u/%u"),
                               snapshot->bambu_layer_current, snapshot->bambu_layer_total);
-    } else lv_label_set_text(s_bambu_layer, "层数 --");
+    } else lv_label_set_text(s_bambu_layer, ui_tr("层数 --"));
     lv_label_set_text(s_bambu_pause_icon,
                       snapshot->bambu_status == BAMBU_STATUS_PAUSED ? LV_SYMBOL_PLAY : LV_SYMBOL_PAUSE);
     bool can_pause = bambu_online && (snapshot->bambu_status == BAMBU_STATUS_PRINTING ||
@@ -2276,10 +2282,10 @@ static void update_snapshot(const codex_snapshot_t *snapshot)
     }
 
     uint32_t custom_accent = snapshot->custom_accent ? snapshot->custom_accent : COLOR_WARNING;
-    lv_label_set_text(s_custom_title, snapshot->custom_title[0] ? snapshot->custom_title : "我的页面");
+    lv_label_set_text(s_custom_title, snapshot->custom_title[0] ? snapshot->custom_title : ui_tr("我的页面"));
     lv_label_set_text(s_custom_value, snapshot->custom_value[0] ? snapshot->custom_value : "--");
-    lv_label_set_text(s_custom_body, snapshot->custom_body[0] ? snapshot->custom_body : "暂无说明");
-    lv_label_set_text(s_custom_footer, snapshot->custom_footer[0] ? snapshot->custom_footer : "Dotii 自定义");
+    lv_label_set_text(s_custom_body, snapshot->custom_body[0] ? snapshot->custom_body : ui_tr("暂无说明"));
+    lv_label_set_text(s_custom_footer, snapshot->custom_footer[0] ? snapshot->custom_footer : ui_tr("Dotii 自定义"));
     lv_obj_set_style_text_color(s_custom_value, color(custom_accent), 0);
     lv_obj_set_style_arc_color(s_custom_ring, color(snapshot->custom_ring_start), LV_PART_INDICATOR);
     lv_arc_set_value(s_custom_ring, 100);
@@ -2337,6 +2343,8 @@ static void update_snapshot(const codex_snapshot_t *snapshot)
 static void ui_timer(lv_timer_t *timer)
 {
     (void)timer;
+    ui_language_refresh();
+    state_ui_set_power(s_battery, s_external_power, s_charging);
     if (xQueueReceive(s_snapshot_queue, &s_snapshot, 0) == pdTRUE) update_snapshot(&s_snapshot);
 
     time_t now = time(NULL);
@@ -2371,7 +2379,7 @@ static void ui_timer(lv_timer_t *timer)
         inactive_ms > active_screen_off_timeout * 1000U) {
         if (!enter_screen_saver()) screen_off();
     }
-    if (active_sleep_timeout > 0 && inactive_ms > active_sleep_timeout * 1000U) {
+    if (!connectivity_usb_active() && active_sleep_timeout > 0 && inactive_ms > active_sleep_timeout * 1000U) {
         s_last_activity = lv_tick_get();
         board_input_request_sleep();
     }
@@ -2402,6 +2410,7 @@ void state_ui_start(QueueHandle_t snapshot_queue)
     lv_obj_invalidate(s_current);
     /* Push one complete first frame while the caller still owns the BSP LVGL
        lock.  Subsequent timer updates can then use partial refresh safely. */
+    ui_language_refresh();
     lv_refr_now(NULL);
     /* One-second updates are sufficient for the clock and avoid redrawing the
        full AMOLED frame twice for the same displayed second. */
@@ -2500,14 +2509,15 @@ void state_ui_set_power(uint8_t percent, bool external_power, bool charging)
         s_last_activity = lv_tick_get();
     }
     s_battery = percent;
+    s_charging = charging;
     if (percent <= 100) {
         lv_label_set_text_fmt(s_battery_label,
-                              charging ? "电量 %u%% · 充电中" :
-                              external_power ? "电量 %u%% · 充电中" : "电量 %u%%",
+                              charging ? ui_tr("电量 %u%% · 充电中") :
+                              external_power ? ui_tr("电量 %u%% · 充电中") : ui_tr("电量 %u%%"),
                               percent);
     } else {
         lv_label_set_text(s_battery_label,
-                          charging ? "电量 -- · 充电中" :
-                          external_power ? "电量 -- · 充电中" : "电量 --");
+                          charging ? ui_tr("电量 -- · 充电中") :
+                          external_power ? ui_tr("电量 -- · 充电中") : ui_tr("电量 --"));
     }
 }

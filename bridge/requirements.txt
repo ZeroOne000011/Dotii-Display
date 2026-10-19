@@ -1,0 +1,4 @@
+bleak>=1.0,<4
+Pillow>=11,<14
+pyserial>=3.5,<4
+esptool>=5,<6

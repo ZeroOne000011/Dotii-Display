@@ -6,6 +6,10 @@ Dotii 是一套由 ESP32-S3 圆形 AMOLED 桌面屏与 Windows/macOS 端“Dotii
 
 [Windows 下载](https://github.com/ZeroOne000011/Dotii-Display/releases/tag/v1.1.1) · [macOS 下载（预览版）](https://github.com/ZeroOne000011/Dotii-Display/releases/tag/v1.1.1-macos-preview.1) · [MakerWorld 模型与打印文件](https://makerworld.com.cn/zh/models/2918764-dotii-zhuo-mian-jiao-hu-ping#profileId-3421401) · [开发指南](开发指南.md)
 
+当前源码版本为 **1.2**，1.2 正式安装包尚未发布；以上下载入口对应已发布的 **Windows 1.1.1** 和 **macOS 1.1.1 预览版**。macOS 1.2 仍在适配与验证中。
+
+1.2 增加管理中心与圆屏的中英文同步切换、USB 配网和 USB 数据同步，以及自动（USB 优先）、仅 USB、仅 Wi-Fi 三种连接方式。语言入口位于“设置 → Dotii 管理中心 → 应用设置 → 语言/Language”。
+
 ## 选择你的系统
 
 | 系统 | 支持范围 | 下载内容 | 当前状态 |
@@ -31,7 +35,7 @@ macOS 预览版目前不支持 Intel Mac。由于尚未经过苹果公证，首�
 1. 从 [Windows Release](https://github.com/ZeroOne000011/Dotii-Display/releases/tag/v1.1.1) 下载便携包，完整解压到一个新文件夹。
 2. 双击 `DotiiManagementCenter.exe`。程序会驻留在系统托盘，并在浏览器打开管理中心；默认地址为 `http://127.0.0.1:8787`。
 3. 用 USB 线连接 Dotii，在“设置”页面识别设备。首次使用时可通过“一键烧录”写入随包固件。
-4. 使用蓝牙配网，将 2.4 GHz Wi-Fi 和管理中心连接信息同步到 Dotii。
+4. 1.2 可通过 USB 或蓝牙配网，将 2.4 GHz Wi-Fi 和管理中心连接信息同步到 Dotii；USB 也可直接同步数据。旧版下载包仍使用蓝牙配网。
 5. 按需启用 Codex 或 Bambu，并在对应页面完成配置。
 
 请保持解压后的目录结构不变，不要单独移动或运行 `DotiiBridge.exe`。关闭浏览器不会退出管理中心；重新打开页面、查看日志或退出程序时，请使用系统托盘中的 Dotii 图标。
@@ -138,13 +142,14 @@ Windows 日志位于 `%LOCALAPPDATA%\StateDisplay\bridge.log`，macOS 日志位�
 
 ## 开发与二次开发
 
-普通用户不需要准备开发环境。准备修改源码时，请先选择对应文档：
+普通用户不需要准备开发环境。修改源码请阅读 [开发指南](开发指南.md)：
 
-- [通用开发指南](开发指南.md)：项目架构、固件、协议、模块扩展、圆屏交互与通用测试规范。
-- [Windows 开发指南](docs/development/windows.md)：Windows 环境、托盘、蓝牙、串口、便携包与发布流程。
-- [macOS 开发指南](docs/development/macos.md)：macOS 菜单栏宿主、CoreBluetooth、串口、签名、公证与 DMG 构建。
+- [架构、固件与设备协议](开发指南.md#1-设计边界)
+- [Windows 开发与打包](开发指南.md#windows-development)
+- [macOS 开发与打包](开发指南.md#macos-development)
+- [GitHub 发布流程](开发指南.md#github-release)
 
-平台共用固件、后台业务、管理网页和设备协议。平台差异应保留在对应适配器、宿主与打包目录中，不应复制共用业务代码。
+平台共用固件、后台业务、管理网页和设备协议。平台差异集中在对应适配器、宿主与打包目录中。
 
 ## 社区贡献与扩展
 

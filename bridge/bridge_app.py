@@ -18,6 +18,15 @@ from pathlib import Path
 
 from platforms import current_platform
 from runtime_paths import application_root, is_frozen, resource_path, runtime_folder, sibling_executable
+from connection_settings import ConnectionSettings
+
+
+def tray_text(text: str) -> str:
+    if ConnectionSettings(runtime_folder() / "connection.json").read()["language"] != "en":
+        return text
+    return {"打开 Dotii 管理中心": "Open Dotii Management Center",
+            "查看运行日志": "View logs", "退出 Dotii 管理中心": "Quit Dotii Management Center",
+            "日志文件": "Log file"}.get(text, text)
 
 
 APP_NAME = "Dotii 管理中心"
@@ -264,7 +273,7 @@ class TrayHost:
         try:
             os.startfile(self.log_path)  # type: ignore[attr-defined]
         except OSError:
-            self.user32.MessageBoxW(self.hwnd, str(self.log_path), "日志文件", 0x40)
+            self.user32.MessageBoxW(self.hwnd, str(self.log_path), tray_text("日志文件"), 0x40)
 
     def _load_icon(self) -> tuple[int, bool]:
         icon = self.user32.LoadImageW(
@@ -287,10 +296,10 @@ class TrayHost:
         if not menu:
             raise ctypes.WinError(ctypes.get_last_error())
         entries = (
-            (MF_STRING, CMD_OPEN, "打开 Dotii 管理中心"),
-            (MF_STRING, CMD_LOG, "查看运行日志"),
+            (MF_STRING, CMD_OPEN, tray_text("打开 Dotii 管理中心")),
+            (MF_STRING, CMD_LOG, tray_text("查看运行日志")),
             (MF_SEPARATOR, 0, None),
-            (MF_STRING, CMD_EXIT, "退出 Dotii 管理中心"),
+            (MF_STRING, CMD_EXIT, tray_text("退出 Dotii 管理中心")),
         )
         for flags, command_id, label in entries:
             if not self.user32.AppendMenuW(menu, flags, command_id, label):
@@ -478,7 +487,7 @@ def main() -> int:
         command = [str(bridge_executable), "--app-server"]
         working_root = application_root()
     else:
-        command = [sys.executable, "-B", str(script), "--app-server"]
+        command = [sys.executable, "-B", str(script), "--app-server", "--development"]
         working_root = script.parent.parent
     process = subprocess.Popen(
         command,

@@ -1,3 +1,4 @@
+#include "ui_language.h"
 #include "app_state.h"
 
 #include <string.h>
@@ -161,22 +162,22 @@ void app_state_make_preview(codex_snapshot_t *snapshot)
     snapshot->generated_at = time(NULL);
     strlcpy(snapshot->five_hour_reset_date, "08-18 14:40", sizeof(snapshot->five_hour_reset_date));
     strlcpy(snapshot->reset_date, "08-18 10:00", sizeof(snapshot->reset_date));
-    strlcpy(snapshot->title, "等待 Codex 任务", sizeof(snapshot->title));
-    strlcpy(snapshot->last_user_message, "请在电脑端启动 Dotii 管理中心。", sizeof(snapshot->last_user_message));
-    strlcpy(snapshot->last_assistant_message, "Dotii 正在等待 Codex 任务数据。", sizeof(snapshot->last_assistant_message));
+    strlcpy(snapshot->title, ui_tr("等待 Codex 任务"), sizeof(snapshot->title));
+    strlcpy(snapshot->last_user_message, ui_tr("请在电脑端启动 Dotii 管理中心。"), sizeof(snapshot->last_user_message));
+    strlcpy(snapshot->last_assistant_message, ui_tr("Dotii 正在等待 Codex 任务数据。"), sizeof(snapshot->last_assistant_message));
     snapshot->conversation_message_count = 2;
     strlcpy(snapshot->conversation_text,
-            "正在连接 Dotii 管理中心。\n\n正在等待 Codex 数据更新。",
+            ui_tr("正在连接 Dotii 管理中心。\n\n正在等待 Codex 数据更新。"),
             sizeof(snapshot->conversation_text));
-    strlcpy(snapshot->current_action, "等待数据更新", sizeof(snapshot->current_action));
+    strlcpy(snapshot->current_action, ui_tr("等待数据更新"), sizeof(snapshot->current_action));
     strlcpy(snapshot->plan_type, "preview", sizeof(snapshot->plan_type));
-    strlcpy(snapshot->custom_title, "我的页面", sizeof(snapshot->custom_title));
-    strlcpy(snapshot->custom_value, "你好，Dotii", sizeof(snapshot->custom_value));
-    strlcpy(snapshot->custom_body, "这是从 Dotii 管理中心同步的自定义界面。", sizeof(snapshot->custom_body));
-    strlcpy(snapshot->custom_footer, "自定义内容", sizeof(snapshot->custom_footer));
+    strlcpy(snapshot->custom_title, ui_tr("我的页面"), sizeof(snapshot->custom_title));
+    strlcpy(snapshot->custom_value, ui_tr("你好，Dotii"), sizeof(snapshot->custom_value));
+    strlcpy(snapshot->custom_body, ui_tr("这是从 Dotii 管理中心同步的自定义界面。"), sizeof(snapshot->custom_body));
+    strlcpy(snapshot->custom_footer, ui_tr("自定义内容"), sizeof(snapshot->custom_footer));
     strlcpy(snapshot->bambu_name, "Bambu Lab", sizeof(snapshot->bambu_name));
-    strlcpy(snapshot->bambu_status_text, "打印中", sizeof(snapshot->bambu_status_text));
-    strlcpy(snapshot->bambu_filename, "可爱机器人外壳.3mf", sizeof(snapshot->bambu_filename));
+    strlcpy(snapshot->bambu_status_text, ui_tr("打印中"), sizeof(snapshot->bambu_status_text));
+    strlcpy(snapshot->bambu_filename, ui_tr("可爱机器人外壳.3mf"), sizeof(snapshot->bambu_filename));
     strlcpy(snapshot->bambu_filament, "PLA Basic", sizeof(snapshot->bambu_filament));
 
     codex_task_detail_t task = {
@@ -197,14 +198,14 @@ void app_state_make_preview(codex_snapshot_t *snapshot)
 const char *app_state_bambu_status_text(bambu_status_t status)
 {
     switch (status) {
-    case BAMBU_STATUS_IDLE: return "空闲";
-    case BAMBU_STATUS_PREPARING: return "准备中";
-    case BAMBU_STATUS_PRINTING: return "打印中";
-    case BAMBU_STATUS_PAUSED: return "已暂停";
-    case BAMBU_STATUS_COMPLETED: return "已完成";
-    case BAMBU_STATUS_CANCELLING: return "取消中";
-    case BAMBU_STATUS_FAULT: return "故障";
-    default: return "离线";
+    case BAMBU_STATUS_IDLE: return ui_tr("空闲");
+    case BAMBU_STATUS_PREPARING: return ui_tr("准备中");
+    case BAMBU_STATUS_PRINTING: return ui_tr("打印中");
+    case BAMBU_STATUS_PAUSED: return ui_tr("已暂停");
+    case BAMBU_STATUS_COMPLETED: return ui_tr("已完成");
+    case BAMBU_STATUS_CANCELLING: return ui_tr("取消中");
+    case BAMBU_STATUS_FAULT: return ui_tr("故障");
+    default: return ui_tr("离线");
     }
 }
 
@@ -239,13 +240,13 @@ dotii_expression_t app_state_dotii_expression_from_string(const char *expression
 const char *app_state_status_text(codex_task_status_t status)
 {
     switch (status) {
-    case CODEX_STATUS_WORKING: return "工作中";
-    case CODEX_STATUS_WAITING: return "等待用户";
-    case CODEX_STATUS_COMPLETED: return "已完成";
-    case CODEX_STATUS_FAILED: return "失败";
-    case CODEX_STATUS_IDLE: return "暂无任务";
-    case CODEX_STATUS_OFFLINE: return "离线";
-    default: return "未知";
+    case CODEX_STATUS_WORKING: return ui_tr("工作中");
+    case CODEX_STATUS_WAITING: return ui_tr("等待用户");
+    case CODEX_STATUS_COMPLETED: return ui_tr("已完成");
+    case CODEX_STATUS_FAILED: return ui_tr("失败");
+    case CODEX_STATUS_IDLE: return ui_tr("暂无任务");
+    case CODEX_STATUS_OFFLINE: return ui_tr("离线");
+    default: return ui_tr("未知");
     }
 }
 

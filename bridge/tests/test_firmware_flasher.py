@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
-import tempfile
+from dotii_test_support import temporary_directory
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -70,7 +70,7 @@ class FirmwareFlasherTests(unittest.TestCase):
         self.assertEqual(_parse_ports(payload), [])
 
     def test_fallback_version_comes_from_project_cmake(self) -> None:
-        with tempfile.TemporaryDirectory() as folder:
+        with temporary_directory() as folder:
             root = Path(folder)
             (root / "CMakeLists.txt").write_text(
                 'set(PROJECT_VER "1.0.0")\nproject(state_display)\n', encoding="utf-8"
@@ -78,7 +78,7 @@ class FirmwareFlasherTests(unittest.TestCase):
             self.assertEqual(_project_version(root), "1.0.0")
 
     def test_package_rejects_path_escape(self) -> None:
-        with tempfile.TemporaryDirectory() as folder:
+        with temporary_directory() as folder:
             root = Path(folder)
             (root / "build").mkdir()
             (root / "outside.bin").write_bytes(b"x")
@@ -89,7 +89,7 @@ class FirmwareFlasherTests(unittest.TestCase):
             self.assertFalse(flasher.package["ready"])
 
     def test_source_and_exe_share_formal_firmware_layout(self) -> None:
-        with tempfile.TemporaryDirectory() as folder:
+        with temporary_directory() as folder:
             root = Path(folder)
             firmware = root / "firmware"
             firmware.mkdir()
@@ -108,7 +108,7 @@ class FirmwareFlasherTests(unittest.TestCase):
             self.assertTrue(flasher.package["ready"])
 
     def test_esptool_requires_esp32s3_stub_data(self) -> None:
-        with tempfile.TemporaryDirectory() as folder:
+        with temporary_directory() as folder:
             root = Path(folder)
             self.assertFalse(_stub_data_ready(root))
             stub = root / "targets" / "stub_flasher" / "2" / "esp32s3.json"
@@ -117,7 +117,7 @@ class FirmwareFlasherTests(unittest.TestCase):
             self.assertTrue(_stub_data_ready(root))
 
     def test_macos_flash_rejects_device_removed_after_selection(self) -> None:
-        with tempfile.TemporaryDirectory() as folder:
+        with temporary_directory() as folder:
             root = Path(folder)
             self._firmware_package(root)
             adapter = FakeMacOSPlatform([], [Path(sys.executable)])
@@ -130,7 +130,7 @@ class FirmwareFlasherTests(unittest.TestCase):
     def test_macos_flash_rejects_non_dotii_and_missing_esptool(self) -> None:
         port = {"port": "/dev/cu.usbserial-other", "name": "Other", "pnp_id": "", "dotii": False}
         dotii = {"port": "/dev/cu.usbmodem2101", "name": "Dotii", "pnp_id": "", "dotii": True}
-        with tempfile.TemporaryDirectory() as folder:
+        with temporary_directory() as folder:
             root = Path(folder)
             self._firmware_package(root)
             missing_tool = FakeMacOSPlatform([port, dotii], [])
@@ -143,7 +143,7 @@ class FirmwareFlasherTests(unittest.TestCase):
 
     def test_macos_duplicate_flash_is_not_started(self) -> None:
         dotii = {"port": "/dev/cu.usbmodem2101", "name": "Dotii", "pnp_id": "", "dotii": True}
-        with tempfile.TemporaryDirectory() as folder:
+        with temporary_directory() as folder:
             root = Path(folder)
             self._firmware_package(root)
             adapter = FakeMacOSPlatform([dotii], [Path(sys.executable)])

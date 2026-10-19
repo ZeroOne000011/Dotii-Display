@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -74,6 +75,16 @@ def runtime_folder() -> Path:
 def project_root() -> Path:
     """Return the source or packaged root containing firmware build files."""
     return bundle_root() if is_frozen() else application_root()
+
+
+def project_version(root: Path | None = None) -> str:
+    """Read the shared firmware and management-center version from CMake."""
+    try:
+        cmake = ((root or project_root()) / "CMakeLists.txt").read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    match = re.search(r'^\s*set\s*\(\s*PROJECT_VER\s+"?([^"\s\)]+)', cmake, re.MULTILINE)
+    return match.group(1)[:48] if match else ""
 
 
 def resource_path(*parts: str) -> Path:

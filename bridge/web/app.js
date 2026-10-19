@@ -1,3 +1,5 @@
+(async () => {
+await window.DotiiI18n.ready;
 const state = {
   overview: null,
   busy: false,
@@ -34,7 +36,7 @@ const state = {
   dotiiFollowingLive: true,
   dotiiEnabled: true,
   dotiiLiveExpression: "idle_breath",
-  dotiiLiveReason: "当前处于空闲状态",
+  dotiiLiveReason: t("当前处于空闲状态"),
   dotiiLiveSignature: null,
   dotiiLiveStartedAtMs: 0,
   dotiiLiveTimer: null,
@@ -70,14 +72,14 @@ const setMarkdownMessages = (id, values) => {
   });
 };
 
-const STATUS_TEXT = {
+const STATUS_TEXT = window.DotiiI18n.localize({
   working: "工作中",
   waiting_user: "等待用户",
   completed: "已完成",
   failed: "失败",
   idle: "暂无任务",
   offline: "暂时离线",
-};
+});
 
 const DISPLAY_TIMEOUT_OPTIONS = [10, 30, 60, 180, 300, 600, 1800, 0];
 const DISPLAY_TIMEOUT_PAIRS = [
@@ -85,13 +87,13 @@ const DISPLAY_TIMEOUT_PAIRS = [
   { screenOff: "charging-screen-off-timeout", sleep: "charging-sleep-timeout" },
 ];
 
-const DOTII_EXPRESSION_FALLBACK = {
+const DOTII_EXPRESSION_FALLBACK = window.DotiiI18n.localize({
   id: "idle_breath",
   label: "待机呼吸",
   purpose: "默认空闲循环",
   src: "/assets/expressions/dotii-idle-breath.webp",
-};
-const DOTII_STATE_FALLBACK = [
+});
+const DOTII_STATE_FALLBACK = window.DotiiI18n.localize([
   { id: "codex_waiting_user", label: "等待操作", group: "codex" },
   { id: "codex_working", label: "工作中", group: "codex" },
   { id: "codex_completed", label: "任务完成", group: "codex" },
@@ -100,24 +102,24 @@ const DOTII_STATE_FALLBACK = [
   { id: "bambu_printing", label: "打印中", group: "bambu" },
   { id: "bambu_completed", label: "打印完成", group: "bambu" },
   { id: "bambu_failure", label: "故障或异常", group: "bambu" },
-];
-const DOTII_STATE_GROUP_FALLBACK = [
+]);
+const DOTII_STATE_GROUP_FALLBACK = window.DotiiI18n.localize([
   { id: "codex", label: "Codex 状态" },
   { id: "bambu", label: "Bambu 状态" },
-];
-const DOTII_FIXED_STATE_FALLBACK = [
+]);
+const DOTII_FIXED_STATE_FALLBACK = window.DotiiI18n.localize([
   { id: "idle", label: "空闲", expression: "idle_breath", duration_ms: 800 },
   { id: "blink", label: "待机眨眼", expression: "blink", duration_ms: 800 },
   { id: "long_idle", label: "长时间无操作", expression: "sleepy_yawn", duration_ms: 800 },
   { id: "touch", label: "触摸屏幕", expression: "touch_response", duration_ms: 1200 },
   { id: "connecting", label: "连接中", expression: "connecting", duration_ms: 800 },
-];
+]);
 const DOTII_DURATION_OPTION_FALLBACK = [
-  { value: 1000, label: "1 秒" },
-  { value: 3000, label: "3 秒" },
-  { value: 5000, label: "5 秒" },
-  { value: 30000, label: "30 秒" },
-  { value: 0, label: "保持" },
+  { value: 1000, label: t("1 秒") },
+  { value: 3000, label: t("3 秒") },
+  { value: 5000, label: t("5 秒") },
+  { value: 30000, label: t("30 秒") },
+  { value: 0, label: t("保持") },
 ];
 
 function cloneDotiiConfig(config) {
@@ -133,8 +135,8 @@ function showDotiiExpression(expressionId, { live = false } = {}) {
   state.dotiiDisplayedExpression = expression.id;
   const image = byId("dotii-current-expression");
   image.src = expression.src;
-  image.alt = `Dotii ${expression.label}动画`;
-  setText("dotii-stage-title", expression.label);
+  image.alt = tr`Dotii ${t(expression.label)}动画`;
+  setText("dotii-stage-title", t(expression.label));
   document.querySelectorAll(".dotii-preview-button").forEach((button) => {
     button.classList.toggle("selected", button.dataset.expressionId === expression.id);
   });
@@ -144,10 +146,10 @@ function showDotiiExpression(expressionId, { live = false } = {}) {
 function applyDotiiLiveDisplay(expressionId, reason) {
   state.dotiiLiveExpression = expressionId;
   state.dotiiLiveReason = reason;
-  setText("dotii-nav-state", state.dotiiEnabled ? dotiiExpression(expressionId).label : "已关闭");
+  setText("dotii-nav-state", state.dotiiEnabled ? t(dotiiExpression(expressionId).label) : t("已关闭"));
   if (state.dotiiFollowingLive) {
     showDotiiExpression(expressionId, { live: true });
-    setText("dotii-stage-reason", reason);
+    setText("dotii-stage-reason", t(reason));
   }
 }
 
@@ -173,12 +175,12 @@ function resolveDotiiLiveDisplay(dotii, nowMs = Date.now()) {
     state.dotiiLiveTimer = window.setTimeout(() => {
       state.dotiiLiveTimer = null;
       if (state.dotiiLiveSignature !== signature) return;
-      applyDotiiLiveDisplay("idle_breath", "动画播放结束，已回到空闲状态");
+      applyDotiiLiveDisplay("idle_breath", t("动画播放结束，已回到空闲状态"));
     }, durationMs - elapsedMs);
   }
   return expired
-    ? { expressionId: "idle_breath", reason: "动画播放结束，已回到空闲状态" }
-    : { expressionId, reason: dotii.reason || "当前处于空闲状态" };
+    ? { expressionId: "idle_breath", reason: t("动画播放结束，已回到空闲状态") }
+    : { expressionId, reason: t(dotii.reason) || t("当前处于空闲状态") };
 }
 
 async function loadDotiiExpressions() {
@@ -186,14 +188,14 @@ async function loadDotiiExpressions() {
     const response = await fetch("/assets/expressions/animations.json", { cache: "no-store" });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const manifest = await response.json();
-    if (!Array.isArray(manifest.animations) || !manifest.animations.length) throw new Error("动画清单为空");
+    if (!Array.isArray(manifest.animations) || !manifest.animations.length) throw new Error(t("动画清单为空"));
     state.dotiiExpressions = manifest.animations;
-    setText("dotii-library-state", `${manifest.animations.length} 个内置动画`);
+    setText("dotii-library-state", tr`${manifest.animations.length} 个内置动画`);
     if (state.dotiiConfig) renderDotiiConfigEditor();
     showDotiiExpression(state.dotiiLiveExpression, { live: state.dotiiFollowingLive });
   } catch (error) {
     state.dotiiExpressions = [DOTII_EXPRESSION_FALLBACK];
-    setText("dotii-library-state", "动画读取失败，请刷新页面");
+    setText("dotii-library-state", t("动画读取失败，请刷新页面"));
     byId("dotii-config-list").replaceChildren();
   }
 }
@@ -222,7 +224,7 @@ function dotiiDurationOptions() {
 
 function markDotiiConfigDirty() {
   state.dotiiConfigDirty = true;
-  setText("dotii-config-save-state", "有尚未保存的修改");
+  setText("dotii-config-save-state", t("有尚未保存的修改"));
   byId("dotii-config-save").disabled = false;
 }
 
@@ -245,7 +247,7 @@ function makeDotiiPreviewButton(expression, extraClass = "") {
   preview.className = `dotii-preview-button ${extraClass}`.trim();
   preview.classList.toggle("selected", state.dotiiDisplayedExpression === expression.id);
   preview.dataset.expressionId = expression.id;
-  preview.setAttribute("aria-label", `预览${expression.label}`);
+  preview.setAttribute("aria-label", tr`预览${t(expression.label)}`);
   const image = document.createElement("img");
   image.src = expression.src;
   image.alt = "";
@@ -253,7 +255,7 @@ function makeDotiiPreviewButton(expression, extraClass = "") {
   preview.addEventListener("click", () => {
     state.dotiiFollowingLive = false;
     showDotiiExpression(expression.id);
-    setText("dotii-stage-reason", `${expression.purpose}。此处按内置资源原速预览。`);
+    setText("dotii-stage-reason", tr`${t(expression.purpose)}。此处按内置资源原速预览。`);
   });
   return preview;
 }
@@ -266,10 +268,10 @@ function renderDotiiConfigEditor() {
   const fixedStates = dotiiFixedStates();
   const fixedExpressions = new Set(fixedStates.map((item) => item.expression));
   const durationOptions = dotiiDurationOptions();
-  const groupLabels = Object.fromEntries(stateGroups.map((item) => [item.id, item.label.replace(/\s*状态$/, "")]));
+  const groupLabels = Object.fromEntries(stateGroups.map((item) => [item.id, t(item.label).replace(/\s*状态$/, "")]));
   const stateLabels = Object.fromEntries(availableStates.map((item) => [
     item.id,
-    `${groupLabels[item.group] || "Dotii"} ${item.label}`,
+    `${groupLabels[item.group] || "Dotii"} ${t(item.label)}`,
   ]));
   list.replaceChildren();
 
@@ -278,7 +280,7 @@ function renderDotiiConfigEditor() {
   const fixedHeading = document.createElement("div");
   fixedHeading.className = "dotii-fixed-heading";
   const fixedTitle = document.createElement("strong");
-  fixedTitle.textContent = "Dotii 默认状态";
+  fixedTitle.textContent = t("Dotii 默认状态");
   fixedHeading.append(fixedTitle);
   const fixedGrid = document.createElement("div");
   fixedGrid.className = "dotii-fixed-grid";
@@ -289,10 +291,10 @@ function renderDotiiConfigEditor() {
     const preview = makeDotiiPreviewButton(expression, "dotii-fixed-preview");
     const copy = document.createElement("div");
     const label = document.createElement("strong");
-    label.textContent = fixedState.label;
+    label.textContent = t(fixedState.label);
     copy.append(label);
     const locked = document.createElement("span");
-    locked.textContent = "默认";
+    locked.textContent = t("默认");
     item.append(preview, copy, locked);
     fixedGrid.append(item);
   });
@@ -314,13 +316,13 @@ function renderDotiiConfigEditor() {
     heading.className = "dotii-config-row-heading";
     const title = document.createElement("div");
     const name = document.createElement("strong");
-    name.textContent = expression.label;
+    name.textContent = t(expression.label);
     title.append(name);
 
     const picker = document.createElement("details");
     picker.className = "dotii-state-picker";
     const summary = document.createElement("summary");
-    summary.textContent = "分配状态";
+    summary.textContent = t("分配状态");
     const options = document.createElement("div");
     options.className = "dotii-state-options";
     stateGroups.forEach((group) => {
@@ -330,7 +332,7 @@ function renderDotiiConfigEditor() {
       groupHeading.className = "dotii-state-group-heading";
       groupHeading.setAttribute("role", "presentation");
       const groupName = document.createElement("span");
-      groupName.textContent = group.label;
+      groupName.textContent = t(group.label);
       groupHeading.append(groupName);
       options.append(groupHeading);
       groupedStates.forEach((stateOption) => {
@@ -338,12 +340,12 @@ function renderDotiiConfigEditor() {
         const checkbox = document.createElement("input");
         checkbox.type = "checkbox";
         checkbox.checked = settings.states.includes(stateOption.id);
-        checkbox.setAttribute("aria-label", `${group.label}：${stateOption.label}`);
+        checkbox.setAttribute("aria-label", `${t(group.label)}：${t(stateOption.label)}`);
         checkbox.addEventListener("change", () => {
           setDotiiStateAssignment(stateOption.id, checkbox.checked ? expression.id : null);
         });
         const labelText = document.createElement("span");
-        labelText.textContent = stateOption.label;
+        labelText.textContent = t(stateOption.label);
         label.append(checkbox, labelText);
         options.append(label);
       });
@@ -361,7 +363,7 @@ function renderDotiiConfigEditor() {
     if (!settings.states.length) {
       const empty = document.createElement("span");
       empty.className = "empty";
-      empty.textContent = "未分配状态";
+      empty.textContent = t("未分配状态");
       chips.append(empty);
     }
     main.append(heading, chips);
@@ -371,7 +373,7 @@ function renderDotiiConfigEditor() {
     const durationLabel = document.createElement("span");
     const durationId = `dotii-duration-${expression.id}`;
     durationLabel.id = `${durationId}-label`;
-    durationLabel.textContent = "动画持续时间";
+    durationLabel.textContent = t("动画持续时间");
     const control = document.createElement("div");
     control.className = "ui-select dotii-duration-select";
     control.dataset.uiSelect = durationId;
@@ -401,7 +403,7 @@ function renderDotiiConfigEditor() {
       option.type = "button";
       option.setAttribute("role", "option");
       option.dataset.value = String(durationOption.value);
-      option.textContent = durationOption.label;
+      option.textContent = t(durationOption.label);
       menu.append(option);
     });
     control.append(input, trigger, menu);
@@ -421,7 +423,7 @@ async function saveDotiiConfig(event) {
   if (!state.dotiiConfig || state.dotiiConfigSaving || !state.dotiiConfigDirty) return;
   state.dotiiConfigSaving = true;
   byId("dotii-config-save").disabled = true;
-  setText("dotii-config-save-state", "正在保存");
+  setText("dotii-config-save-state", t("正在保存"));
   try {
     const response = await fetch("/api/v1/admin/dotii", {
       method: "POST",
@@ -429,16 +431,16 @@ async function saveDotiiConfig(event) {
       body: JSON.stringify({ animations: state.dotiiConfig.animations }),
     });
     const result = await response.json();
-    if (!response.ok) throw new Error(result.error || "动画设置保存失败");
+    if (!response.ok) throw new Error(result.error || t("动画设置保存失败"));
     state.dotiiConfig = cloneDotiiConfig(result.dotii_config);
     state.dotiiConfigDirty = false;
-    setText("dotii-config-save-state", "配置已同步");
-    showToast("动画设置已保存并同步");
+    setText("dotii-config-save-state", t("配置已同步"));
+    showToast(t("动画设置已保存并同步"));
     renderDotiiConfigEditor();
   } catch (error) {
-    setText("dotii-config-save-state", "保存失败，请检查设置");
+    setText("dotii-config-save-state", t("保存失败，请检查设置"));
     byId("dotii-config-save").disabled = false;
-    showToast(error.message || "动画设置保存失败");
+    showToast(error.message || t("动画设置保存失败"));
   } finally {
     state.dotiiConfigSaving = false;
   }
@@ -488,7 +490,7 @@ function setUiSelectValue(id, value, dispatch = false) {
     .find((option) => option.dataset.value === normalized);
   if (!selected) return;
   input.value = normalized;
-  setText(`${id}-value`, selected.textContent.trim());
+  setText(`${id}-value`, t(selected.textContent.trim()));
   control.querySelectorAll("[data-value]").forEach((option) => {
     option.setAttribute("aria-selected", String(option === selected));
   });
@@ -599,11 +601,11 @@ function formatNumber(value, available = true) {
 
 function formatDuration(seconds) {
   const value = Math.max(0, Number(seconds) || 0);
-  if (value < 60) return `${Math.floor(value)} 秒`;
-  if (value < 3600) return `${Math.floor(value / 60)} 分钟`;
+  if (value < 60) return tr`${Math.floor(value)} 秒`;
+  if (value < 3600) return tr`${Math.floor(value / 60)} 分钟`;
   const hours = Math.floor(value / 3600);
   const minutes = Math.floor((value % 3600) / 60);
-  return `${hours} 小时 ${minutes} 分钟`;
+  return tr`${hours} 小时 ${minutes} 分钟`;
 }
 
 function formatTaskDuration(seconds) {
@@ -611,16 +613,16 @@ function formatTaskDuration(seconds) {
   const hours = Math.floor(value / 3600);
   const minutes = Math.floor((value % 3600) / 60);
   const remainingSeconds = value % 60;
-  if (hours > 0) return `耗时 ${hours} 小时 ${minutes} 分钟 ${remainingSeconds} 秒`;
-  if (minutes > 0) return `耗时 ${minutes} 分钟 ${remainingSeconds} 秒`;
-  return `耗时 ${remainingSeconds} 秒`;
+  if (hours > 0) return tr`耗时 ${hours} 小时 ${minutes} 分钟 ${remainingSeconds} 秒`;
+  if (minutes > 0) return tr`耗时 ${minutes} 分钟 ${remainingSeconds} 秒`;
+  return tr`耗时 ${remainingSeconds} 秒`;
 }
 
 function formatTime(epoch) {
-  if (!epoch) return "尚未更新";
+  if (!epoch) return t("尚未更新");
   const date = new Date(Number(epoch) * 1000);
-  if (Number.isNaN(date.getTime())) return "尚未更新";
-  return new Intl.DateTimeFormat("zh-CN", {
+  if (Number.isNaN(date.getTime())) return t("尚未更新");
+  return new Intl.DateTimeFormat(window.DotiiI18n.language, {
     month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit",
   }).format(date);
 }
@@ -629,14 +631,14 @@ function formatClock(epoch) {
   if (!epoch) return "--";
   const date = new Date(Number(epoch) * 1000);
   if (Number.isNaN(date.getTime())) return "--";
-  return new Intl.DateTimeFormat("zh-CN", {hour: "2-digit", minute: "2-digit"}).format(date);
+  return new Intl.DateTimeFormat(window.DotiiI18n.language, {hour: "2-digit", minute: "2-digit"}).format(date);
 }
 
 function formatMinutes(value) {
   const minutes = Math.max(0, Number(value) || 0);
   if (!minutes) return "--";
-  if (minutes < 60) return `${minutes} 分钟`;
-  return `${Math.floor(minutes / 60)} 小时 ${minutes % 60} 分钟`;
+  if (minutes < 60) return tr`${minutes} 分钟`;
+  return tr`${Math.floor(minutes / 60)} 小时 ${minutes % 60} 分钟`;
 }
 
 function renderBambu(bambu = {}, config = {}, enabled = true) {
@@ -645,7 +647,7 @@ function renderBambu(bambu = {}, config = {}, enabled = true) {
     byId("bambu-host").value = config.host || "";
     byId("bambu-serial").value = config.serial || "";
     byId("bambu-camera-enabled").checked = config.camera_enabled !== false;
-    byId("bambu-access-code").placeholder = config.has_access_code ? "已保存，留空表示不修改" : "请输入局域网访问码";
+    byId("bambu-access-code").placeholder = config.has_access_code ? t("已保存，留空表示不修改") : t("请输入局域网访问码");
     state.bambuLoaded = true;
   }
   const configured = Boolean(bambu.configured || config.configured);
@@ -654,12 +656,12 @@ function renderBambu(bambu = {}, config = {}, enabled = true) {
   byId("bambu-dashboard").hidden = !configured;
   const connection = byId("bambu-connection");
   connection.dataset.state = connected ? "online" : configured ? "waiting" : "offline";
-  connection.textContent = connected ? "已连接" : configured ? "正在连接" : "尚未添加";
+  connection.textContent = connected ? t("已连接") : configured ? t("正在连接") : t("尚未添加");
   const dashboardConnection = byId("bambu-dashboard-connection");
   dashboardConnection.dataset.state = connection.dataset.state;
   dashboardConnection.textContent = connection.textContent;
   setText("bambu-dashboard-name", config.name || bambu.name || "Bambu Lab");
-  setText("bambu-status", bambu.status_text || "离线");
+  setText("bambu-status", t(bambu.status_text) || t("离线"));
   setText("bambu-progress", connected ? `${Number(bambu.progress) || 0}%` : "--");
   byId("bambu-progress-fill").style.width = connected ? `${Math.max(0, Math.min(100, Number(bambu.progress) || 0))}%` : "0%";
   setText("bambu-remaining", formatMinutes(bambu.remaining_minutes));
@@ -669,26 +671,26 @@ function renderBambu(bambu = {}, config = {}, enabled = true) {
   setText("bambu-filament", bambu.filament || "--");
   setText("bambu-nozzle", connected ? `${Number(bambu.nozzle_temperature || 0).toFixed(0)} °C` : "--");
   setText("bambu-bed", connected ? `${Number(bambu.bed_temperature || 0).toFixed(0)} °C` : "--");
-  setText("bambu-updated", bambu.updated_at_epoch ? `更新于 ${formatTime(bambu.updated_at_epoch)}` : "尚未收到数据");
+  setText("bambu-updated", bambu.updated_at_epoch ? tr`更新于 ${formatTime(bambu.updated_at_epoch)}` : t("尚未收到数据"));
   const camera = byId("bambu-camera");
   camera.hidden = !bambu.camera_available;
   byId("bambu-camera-empty").hidden = Boolean(bambu.camera_available);
   if (bambu.camera_available) camera.src = `/api/v1/admin/bambu/camera.jpg?v=${encodeURIComponent(bambu.camera_revision || Date.now())}`;
   const action = bambu.status === "paused" ? "resume" : "pause";
   byId("bambu-pause").dataset.action = action;
-  byId("bambu-pause").textContent = action === "resume" ? "继续" : "暂停";
+  byId("bambu-pause").textContent = action === "resume" ? t("继续") : t("暂停");
   byId("bambu-pause").disabled = !connected || !["printing", "paused"].includes(bambu.status);
   byId("bambu-stop").disabled = !connected || !["printing", "paused", "preparing"].includes(bambu.status);
   const error = !configured
     ? ""
     : !connected && bambu.last_error
-      ? "暂时无法连接打印机，请确认打印机已开机并与电脑连接到同一网络。"
+      ? t("暂时无法连接打印机，请确认打印机已开机并与电脑连接到同一网络。")
       : bambu.camera_error
-        ? "相机画面暂时不可用，打印状态仍会正常更新。"
+        ? t("相机画面暂时不可用，打印状态仍会正常更新。")
         : "";
   byId("bambu-error").hidden = !error;
   setText("bambu-error", error);
-  setText("bambu-nav-state", !enabled ? "已关闭" : connected ? (bambu.status_text || "在线") : configured ? "连接中" : "添加打印机");
+  setText("bambu-nav-state", !enabled ? t("已关闭") : connected ? (t(bambu.status_text) || t("在线")) : configured ? t("连接中") : t("添加打印机"));
 }
 
 function setBridgeState(bridge) {
@@ -696,15 +698,13 @@ function setBridgeState(bridge) {
   const collectorState = bridge.collector_state || "starting";
   const bridgeOnline = bridge.online !== false;
   indicator.dataset.state = bridgeOnline ? "online" : "error";
-  setText("bridge-state-label", bridgeOnline ? "管理中心在线" : "管理中心连接失败");
-  setText("collector-detail", collectorState === "disabled" ? "Codex 模块已关闭" : collectorState === "online" ? "已连接" : collectorState === "error" ? "需要修复" : "正在连接");
+  setText("bridge-state-label", bridgeOnline ? t("管理中心在线") : t("管理中心连接失败"));
+  setText("collector-detail", collectorState === "disabled" ? t("Codex 模块已关闭") : collectorState === "online" ? t("已连接") : collectorState === "error" ? t("需要修复") : t("正在连接"));
   setText("bridge-uptime", formatDuration(Date.now() / 1000 - Number(bridge.started_at_epoch || 0)));
   const autoStart = byId("auto-start");
   autoStart.checked = Boolean(bridge.auto_start);
   autoStart.disabled = bridge.startup_available === false;
-  autoStart.title = autoStart.disabled ? "请从正式安装的 Dotii 管理中心应用设置登录启动" : "";
-  setText("device-url", bridge.device_url || "--");
-  setText("bridge-token", bridge.token || "--");
+  autoStart.title = autoStart.disabled ? t("请从正式安装的 Dotii 管理中心应用设置登录启动") : "";
   setText("local-url", bridge.local_url || "--");
 }
 
@@ -725,7 +725,7 @@ function renderFirmware(firmware = {}) {
   const badge = byId("firmware-badge");
   const identified = dotiiPorts.length > 0;
   badge.dataset.state = running ? "running" : success || identified || ready ? "ready" : "error";
-  badge.textContent = running ? "烧录中" : success ? "已完成" : identified ? "已识别" : ready ? "固件就绪" : "需要处理";
+  badge.textContent = running ? t("烧录中") : success ? t("已完成") : identified ? t("已识别") : ready ? t("固件就绪") : t("需要处理");
   setText("firmware-version", packageInfo.version ? `v${packageInfo.version}` : "--");
   setText("firmware-size", packageInfo.app_size ? formatBytes(packageInfo.app_size) : "--");
   setText("firmware-hash", packageInfo.app_sha256 ? packageInfo.app_sha256.slice(0, 20) : "--");
@@ -750,7 +750,7 @@ function renderFirmware(firmware = {}) {
     const selected = dotiiPorts.some((port) => port.port === previous) ? previous : dotiiPorts[0]?.port || "";
     input.value = selected;
     if (selected) setUiSelectValue("firmware-port", selected);
-    else setText("firmware-port-value", ports.length ? "未识别到 Dotii" : "未发现串口设备");
+    else setText("firmware-port-value", ports.length ? t("未识别到 Dotii") : t("未发现串口设备"));
   }
   control.querySelector(".ui-select-trigger").disabled = running || !ports.length;
   const progress = Math.max(0, Math.min(100, Number(firmware.progress) || 0));
@@ -758,13 +758,13 @@ function renderFirmware(firmware = {}) {
   byId("firmware-progress").closest(".firmware-panel").dataset.running = String(running);
   const firmwareDetail = firmware.operation_state === "idle"
     ? identified
-      ? "已识别 Dotii ESP32-S3，可执行固件烧录"
-      : ready ? "请通过 USB 连接 Dotii" : packageInfo.error || "烧录组件不可用"
-    : firmware.operation_detail;
+      ? t("已识别 Dotii ESP32-S3，可执行固件烧录")
+      : ready ? t("请通过 USB 连接 Dotii") : packageInfo.error || t("烧录组件不可用")
+    : t(firmware.operation_detail);
   setText("firmware-detail", firmwareDetail);
   byId("firmware-refresh").disabled = running;
   byId("firmware-flash").disabled = running || !ready || !input.value || !dotiiPorts.some((port) => port.port === input.value);
-  byId("firmware-flash").textContent = running ? `正在烧录 ${progress}%` : "烧录 Dotii";
+  byId("firmware-flash").textContent = running ? tr`正在烧录 ${progress}%` : t("烧录 Dotii");
 }
 
 function renderBluetooth(bluetooth = {}) {
@@ -778,12 +778,12 @@ function renderBluetooth(bluetooth = {}) {
   const blocked = ["denied", "bluetooth_off", "unavailable"].includes(bluetooth.permission_state);
   const badge = byId("bluetooth-badge");
   badge.dataset.state = running ? "running" : blocked || !available || !ready ? "error" : "ready";
-  badge.textContent = running ? "处理中" : blocked ? "需要处理" : connected ? "已连接" : recognized ? "已识别" : ready ? "蓝牙就绪" : "需要处理";
+  badge.textContent = running ? t("处理中") : blocked ? t("需要处理") : connected ? t("已连接") : recognized ? t("已识别") : ready ? t("蓝牙就绪") : t("需要处理");
 
   const input = byId("bluetooth-device");
   const control = input.closest("[data-ui-select]");
   const menu = control.querySelector(".ui-select-menu");
-  const signature = JSON.stringify(devices.map((device) => [device.address, device.name, device.rssi]));
+  const signature = window.DotiiI18n.language + JSON.stringify(devices.map((device) => [device.address, device.name, device.rssi]));
   if (signature !== state.bluetoothDevicesSignature) {
     state.bluetoothDevicesSignature = signature;
     const previous = input.value || bluetooth.last_address || "";
@@ -793,45 +793,45 @@ function renderBluetooth(bluetooth = {}) {
       option.type = "button";
       option.setAttribute("role", "option");
       option.dataset.value = device.address;
-      const signal = Number.isFinite(Number(device.rssi)) ? `${device.rssi} dBm` : "已登记";
+      const signal = device.rssi != null && device.rssi !== "" && Number.isFinite(Number(device.rssi)) ? `${device.rssi} dBm` : t("已登记");
       option.textContent = `${device.name || "Dotii"} · ${signal}`;
       menu.append(option);
     });
     const selected = devices.some((device) => device.address === previous) ? previous : devices[0]?.address || "";
     input.value = selected;
     if (selected) setUiSelectValue("bluetooth-device", selected);
-    else setText("bluetooth-device-value", devices.length ? "请选择 Dotii" : "未发现附近设备");
+    else setText("bluetooth-device-value", devices.length ? t("请选择 Dotii") : t("未发现附近设备"));
   }
   control.querySelector(".ui-select-trigger").disabled = running || !devices.length;
-  const managementStatus = typeof status.bridge === "string"
-    ? status.bridge.replace("桥接", "管理中心")
-    : "管理中心状态未知";
-  const operationDetail = bluetooth.operation_state === "idle" ? "" : bluetooth.operation_detail;
-  const liveDetail = status.name
-    ? `${status.name} · ${connected ? "蓝牙已连接" : "已识别，蓝牙暂未连接"} · ${status.wifi ? "Wi-Fi 已连接" : "Wi-Fi 未连接"} · ${managementStatus}`
-    : operationDetail;
+  const operationDetail = bluetooth.operation_state === "idle" ? "" : t(bluetooth.operation_detail);
+  const liveDetail = connected
+    ? status.wifi ? t("Wi-Fi 已连接，可修改网络配置。") : t("蓝牙已连接，请填写 Wi-Fi 信息并保存。")
+    : status.name ? t("已识别设备，等待蓝牙连接。") : "";
   const permissionDetails = {
-    unknown: "首次扫描时 macOS 会请求蓝牙权限",
-    denied: "请在系统设置 > 隐私与安全性 > 蓝牙中允许 Dotii 管理中心",
-    bluetooth_off: "蓝牙已关闭，请先在系统设置中打开蓝牙",
-    unavailable: "当前 Mac 没有可用的低功耗蓝牙功能",
-    timeout: "等待蓝牙连接或系统配对确认超时，请确认 Dotii 在附近后重试",
-    stale_pairing: "Dotii 已重置配对，但这台 Mac 仍保留旧记录；请在系统设置 > 蓝牙中忽略 Dotii，然后重新扫描",
-    not_found: "暂时无法重新连接已识别的 Dotii，请点击“扫描 Dotii”重试",
+    unknown: t("首次扫描时 macOS 会请求蓝牙权限"),
+    denied: t("请在系统设置 > 隐私与安全性 > 蓝牙中允许 Dotii 管理中心"),
+    bluetooth_off: t("蓝牙已关闭，请先在系统设置中打开蓝牙"),
+    unavailable: t("当前 Mac 没有可用的低功耗蓝牙功能"),
+    timeout: t("等待蓝牙连接或系统配对确认超时，请确认 Dotii 在附近后重试"),
+    stale_pairing: t("Dotii 已重置配对，但这台 Mac 仍保留旧记录；请在系统设置 > 蓝牙中忽略 Dotii，然后重新扫描"),
+    not_found: t("暂时无法重新连接已识别的 Dotii，请点击“扫描 Dotii”重试"),
   };
   const fallbackDetail = !available
-    ? "当前平台尚未支持 Dotii 蓝牙配网"
+    ? t("当前平台尚未支持 Dotii 蓝牙配网")
     : !ready
-      ? "当前安装缺少蓝牙连接组件"
-      : permissionDetails[bluetooth.permission_state] || "请扫描附近的 Dotii";
-  const connectionDetail = !connected && bluetooth.connection_detail
-    ? bluetooth.connection_detail : "";
-  setText("bluetooth-detail", connectionDetail || liveDetail || fallbackDetail);
-  byId("bluetooth-install").hidden = ready || !available;
+      ? t("当前安装缺少蓝牙连接组件")
+      : permissionDetails[bluetooth.permission_state] || t("请扫描附近的 Dotii");
+  const connectionDetail = !connected && t(bluetooth.connection_detail)
+    ? t(bluetooth.connection_detail) : "";
+  const operationNeedsAttention = running || bluetooth.operation_state === "error";
+  setText("bluetooth-detail", !available || !ready || blocked ? fallbackDetail
+    : operationNeedsAttention && operationDetail ? operationDetail
+    : connectionDetail || liveDetail || operationDetail || fallbackDetail);
+  updateBluetoothRepairVisibility(bluetooth);
   byId("bluetooth-install").disabled = running;
   byId("bluetooth-scan").disabled = running || !available || !ready;
   byId("bluetooth-configure").disabled = running || !available || !ready || !input.value || !byId("bluetooth-ssid").value.trim();
-  byId("bluetooth-configure").textContent = running ? "正在连接…" : "保存并连接";
+  byId("bluetooth-configure").textContent = running ? t("正在连接…") : t("保存并连接");
 }
 
 function customFormValue() {
@@ -967,15 +967,15 @@ function loadCustomSource(url, revision) {
       renderCustomPreview();
       resolve(image);
     };
-    image.onerror = () => reject(new Error("背景图片读取失败"));
+    image.onerror = () => reject(new Error(t("背景图片读取失败")));
     image.src = url;
   });
 }
 
 function populateCustomForm(custom = {}) {
   byId("custom-enabled").checked = Boolean(custom.enabled);
-  byId("custom-title").value = typeof custom.title === "string" ? custom.title : "我的页面";
-  byId("custom-value").value = typeof custom.value === "string" ? custom.value : "你好，Dotii";
+  byId("custom-title").value = typeof custom.title === "string" ? custom.title : t("我的页面");
+  byId("custom-value").value = typeof custom.value === "string" ? custom.value : t("你好，Dotii");
   byId("custom-body").value = typeof custom.body === "string" ? custom.body : "";
   byId("custom-footer").value = typeof custom.footer === "string" ? custom.footer : "";
   byId("custom-title-visible").checked = custom.title_visible !== false;
@@ -992,7 +992,7 @@ function populateCustomForm(custom = {}) {
   byId("custom-ring-enabled").checked = custom.ring_enabled !== false;
   byId("custom-ring-start").value = /^#[0-9A-F]{6}$/i.test(custom.ring_start || "") ? custom.ring_start : "#F2C66D";
   byId("custom-ring-end").value = /^#[0-9A-F]{6}$/i.test(custom.ring_end || "") ? custom.ring_end : "#5DA9FF";
-  setText("custom-image-state", custom.source_available ? "当前图片已保存，可以选择表情或重新上传。" : "选择图片后可调整位置和大小。");
+  setText("custom-image-state", custom.source_available ? t("当前图片已保存，可以选择表情或重新上传。") : t("选择图片后可调整位置和大小。"));
   byId("custom-settings").hidden = !Boolean(custom.enabled);
   renderCustomPreview(customFormValue());
   if (custom.source_available && Number(custom.source_revision) !== state.customSourceRevision) {
@@ -1001,28 +1001,28 @@ function populateCustomForm(custom = {}) {
   }
   state.customLoaded = true;
   state.customDirty = false;
-  setText("custom-save-state", "已保存");
+  setText("custom-save-state", t("已保存"));
 }
 
 function renderCodexTask(task) {
-  setText("task-status", STATUS_TEXT[task.status] || "未知状态");
+  setText("task-status", STATUS_TEXT[task.status] || t("未知状态"));
   setText("message-count", formatNumber(task.user_message_count ?? task.message_count));
-  setText("conversation-title", task.title || "暂无任务");
-  setText("task-title", task.title || "暂无任务");
+  setText("conversation-title", task.title || t("暂无任务"));
+  setText("task-title", task.title || t("暂无任务"));
   setText("task-duration", formatTaskDuration(task.duration_seconds));
-  setMarkdown("last-user-message", task.last_user_message || "暂无内容");
+  setMarkdown("last-user-message", task.last_user_message || t("暂无内容"));
   const messages = Array.isArray(task.codex_messages) ? task.codex_messages.filter(Boolean) : [];
   const visibleMessages = task.conversation_mode === "progress" ? messages : messages.slice(-1);
   const conversationHeading = {
-    progress: "Codex 中间消息",
-    history: "Codex 最终回复",
-    final: "Codex 最终回复",
-  }[task.conversation_mode] || "Codex 消息";
+    progress: t("Codex 中间消息"),
+    history: t("Codex 最终回复"),
+    final: t("Codex 最终回复"),
+  }[task.conversation_mode] || t("Codex 消息");
   setText("codex-message-heading", conversationHeading);
   setMarkdownMessages(
     "codex-message-stream",
     visibleMessages.length ? visibleMessages : [
-      task.conversation_mode === "progress" ? "暂无中间消息" : (task.last_assistant_message || "暂无最终回复"),
+      task.conversation_mode === "progress" ? t("暂无中间消息") : (task.last_assistant_message || t("暂无最终回复")),
     ],
   );
 }
@@ -1035,7 +1035,7 @@ function renderCodexTaskSwitcher(tasks) {
   tasks.forEach((task, index) => {
     const button = document.createElement("button");
     button.type = "button";
-    button.textContent = `任务${["一", "二", "三", "四", "五", "六"][index] || index + 1}`;
+    button.textContent = tr`任务${[t("一"), t("二"), t("三"), t("四"), t("五"), t("六")][index] || index + 1}`;
     button.title = task.title || button.textContent;
     button.classList.toggle("active", task.thread_id === state.selectedCodexTaskId);
     button.addEventListener("click", () => {
@@ -1049,6 +1049,7 @@ function renderCodexTaskSwitcher(tasks) {
 
 function renderOverview(overview) {
   state.overview = overview;
+  renderConnection(overview);
   if (!state.codexChecking && overview.codex_check) state.codexCheck = overview.codex_check;
   const snapshot = overview.snapshot || {};
   const codex = snapshot.codex || {};
@@ -1071,20 +1072,21 @@ function renderOverview(overview) {
   setBridgeState(bridge);
   renderBluetooth(overview.bluetooth || {});
   renderFirmware(overview.firmware || {});
+  renderProvisionMethod();
   byId("usage-ring").style.setProperty("--progress", `${weekly * 3.6}deg`);
   byId("five-hour-ring").style.setProperty("--progress", `${fiveHour * 3.6}deg`);
   setText("weekly-value", weeklyAvailable ? `${weekly}%` : "--");
   setText("five-hour-value", fiveHourAvailable ? `${fiveHour}%` : "--");
-  setText("five-hour-plan", fiveHourAvailable ? "Plus 计划" : "仅 Plus");
+  setText("five-hour-plan", fiveHourAvailable ? t("Plus 计划") : t("仅 Plus"));
   setText("five-hour-reset-date", fiveHourAvailable ? (codex.five_hour_reset_date || "--") : "--");
   setText("weekly-reset-inline-value", codex.reset_date || "--");
-  setText("weekly-plan", codex.plan_type ? `${codex.plan_type} 计划` : "计划类型未知");
-  setText("snapshot-source", snapshot.preview_data ? "示例内容" : bridge.collector_state === "online" ? "已连接" : "等待连接");
+  setText("weekly-plan", codex.plan_type ? tr`${codex.plan_type} 计划` : t("计划类型未知"));
+  setText("snapshot-source", snapshot.preview_data ? t("示例内容") : bridge.collector_state === "online" ? t("已连接") : t("等待连接"));
   setText("snapshot-time", formatTime(snapshot.generated_at_epoch));
   setText("weekly-tokens", formatNumber(codex.weekly_tokens, codex.weekly_tokens_available !== false));
   setText("weekly-token-period", codex.weekly_tokens_available !== false && codex.weekly_tokens_as_of
-    ? `统计截至 ${codex.weekly_tokens_as_of}`
-    : "等待用量统计");
+    ? tr`统计截至 ${codex.weekly_tokens_as_of}`
+    : t("等待用量统计"));
   setText("reset-date", codex.reset_date || "--");
   renderCodexTask(task);
   renderCodexTaskSwitcher(tasks);
@@ -1093,14 +1095,14 @@ function renderOverview(overview) {
   byId("codex-content").hidden = !codexEnabled;
   renderCodexCheck(state.codexCheck, codexEnabled, bridge);
   byId("bambu-content").hidden = !bambuEnabled;
-  setText("codex-nav-state", codexEnabled ? (bridge.collector_state === "online" ? "在线" : bridge.collector_state === "error" ? "异常" : "连接中") : "已关闭");
+  setText("codex-nav-state", codexEnabled ? (bridge.collector_state === "online" ? t("在线") : bridge.collector_state === "error" ? t("异常") : t("连接中")) : t("已关闭"));
   renderBambu(snapshot.bambu || {}, overview.bambu_config || {}, bambuEnabled);
   const incomingDotiiConfig = overview.dotii_config;
   if (!state.dotiiConfigDirty && !state.dotiiConfigSaving && incomingDotiiConfig
       && (!state.dotiiConfig || state.dotiiConfig.revision !== incomingDotiiConfig.revision)) {
     state.dotiiConfig = cloneDotiiConfig(incomingDotiiConfig);
     byId("dotii-config-save").disabled = true;
-    setText("dotii-config-save-state", "配置已同步");
+    setText("dotii-config-save-state", t("配置已同步"));
     renderDotiiConfigEditor();
   }
   renderDotii(snapshot.dotii || {}, dotiiEnabled);
@@ -1113,8 +1115,8 @@ function renderOverview(overview) {
   if (!state.codexUiSaving) {
     setUiSelectValue("codex-ui", codexUi);
     setText("codex-ui-state", codexUi === "dual_limit"
-      ? "同时显示 5 小时和周剩余额度"
-      : "仅显示周剩余额度");
+      ? t("同时显示 5 小时和周剩余额度")
+      : t("仅显示周剩余额度"));
   }
   if (!state.displayDirty && !state.displaySaving) {
     const angle = Math.max(80, Math.min(100, Number(displayConfig.docked_rotation_tenths || 840) / 10));
@@ -1135,21 +1137,21 @@ function renderOverview(overview) {
       ? displayConfig.screen_off_page : "none");
     refreshTimeoutConstraints();
     setText("dock-angle-output", `${angle.toFixed(1)}°`);
-    setText("display-save-state", "已同步到 Dotii 管理中心");
+    setText("display-save-state", t("已同步到 Dotii 管理中心"));
   }
   const custom = snapshot.custom || {};
-  setText("custom-nav-state", custom.enabled ? "已启用" : "未启用");
+  setText("custom-nav-state", custom.enabled ? t("已启用") : t("未启用"));
   if (!state.customLoaded || (!state.customDirty && !state.customSaving)) populateCustomForm(custom);
   byId("fatal-state").hidden = true;
 }
 
 function checkText(value) {
-  return value ? "正常" : "异常";
+  return value ? t("正常") : t("异常");
 }
 
 function collectorText(collector = {}) {
-  const labels = { online: "在线", starting: "连接中", error: "异常", disabled: "已关闭" };
-  return labels[collector.collector_state] || "等待连接";
+  const labels = { online: t("在线"), starting: t("连接中"), error: t("异常"), disabled: t("已关闭") };
+  return labels[collector.collector_state] || t("等待连接");
 }
 
 function renderCodexCheck(result, enabled = true, liveBridge = {}) {
@@ -1158,15 +1160,15 @@ function renderCodexCheck(result, enabled = true, liveBridge = {}) {
   const badge = byId("codex-check-badge");
   if (state.codexChecking) {
     badge.dataset.state = "running";
-    badge.textContent = "检测中";
-    setText("codex-check-detail", "正在通过本机 App Server 读取 Codex 状态…");
+    badge.textContent = t("检测中");
+    setText("codex-check-detail", t("正在通过本机 App Server 读取 Codex 状态…"));
     setText("codex-check-collector", collectorText(liveBridge));
     return;
   }
   if (!result) {
     badge.dataset.state = "idle";
-    badge.textContent = "尚未检测";
-    setText("codex-check-detail", enabled ? "点击“开始检测”验证当前 Codex 数据链路。" : "启用 Codex 后可运行只读检测。");
+    badge.textContent = t("尚未检测");
+    setText("codex-check-detail", enabled ? t("点击“开始检测”验证当前 Codex 数据链路。") : t("启用 Codex 后可运行只读检测。"));
     setText("codex-check-collector", collectorText(liveBridge));
     return;
   }
@@ -1176,17 +1178,17 @@ function renderCodexCheck(result, enabled = true, liveBridge = {}) {
   const checks = result.checks || {};
   const collector = result.collector || liveBridge;
   badge.dataset.state = result.ok ? "ready" : "error";
-  badge.textContent = result.ok ? "运行正常" : account.logged_in ? "部分异常" : "需要处理";
-  setText("codex-check-cli", cli.available ? (cli.version && cli.version !== "--" ? `v${cli.version}` : "可用") : "不可用");
-  setText("codex-check-source", cli.source || "--");
+  badge.textContent = result.ok ? t("运行正常") : account.logged_in ? t("部分异常") : t("需要处理");
+  setText("codex-check-cli", cli.available ? (cli.version && cli.version !== "--" ? `v${cli.version}` : t("可用")) : t("不可用"));
+  setText("codex-check-source", t(cli.source) || "--");
   setText("codex-check-server", checkText(appServer.available));
   setText("codex-check-collector", collectorText(collector));
-  setText("codex-check-account", account.logged_in ? (account.email || "已登录") : "未登录");
+  setText("codex-check-account", account.logged_in ? (account.email || t("已登录")) : t("未登录"));
   setText("codex-check-plan", account.plan_type ? account.plan_type.toUpperCase() : "--");
-  setText("codex-check-usage", account.logged_in ? `额度${checkText(checks.rate_limits)} · 用量${checkText(checks.usage)}` : "--");
-  setText("codex-check-threads", checks.threads ? `正常 · ${Number(result.thread_count) || 0} 个` : "异常");
-  setText("codex-check-detail", result.detail || (result.ok ? "Codex 功能运行正常。" : "Codex 功能检测异常。"));
-  setText("codex-check-time", result.checked_at_epoch ? `检测于 ${formatTime(result.checked_at_epoch)}` : "尚未检测");
+  setText("codex-check-usage", account.logged_in ? tr`额度${checkText(checks.rate_limits)} · 用量${checkText(checks.usage)}` : "--");
+  setText("codex-check-threads", checks.threads ? tr`正常 · ${Number(result.thread_count) || 0} 个` : t("异常"));
+  setText("codex-check-detail", t(result.detail) || (result.ok ? t("Codex 功能运行正常。") : t("Codex 功能检测异常。")));
+  setText("codex-check-time", result.checked_at_epoch ? tr`检测于 ${formatTime(result.checked_at_epoch)}` : t("尚未检测"));
 }
 
 async function checkCodex() {
@@ -1200,14 +1202,14 @@ async function checkCodex() {
       body: "{}",
     });
     const result = await response.json();
-    if (!response.ok) throw new Error(result.error || "Codex 检测失败");
+    if (!response.ok) throw new Error(result.error || t("Codex 检测失败"));
     state.codexCheck = result;
-    showToast(result.ok ? "Codex 功能运行正常" : (result.detail || "Codex 检测发现异常"));
+    showToast(result.ok ? t("Codex 功能运行正常") : (t(result.detail) || t("Codex 检测发现异常")));
   } catch (error) {
     state.codexCheck = {
       ok: false,
       checked_at_epoch: Math.floor(Date.now() / 1000),
-      detail: error.message || "Codex 检测失败",
+      detail: error.message || t("Codex 检测失败"),
       collector: state.overview?.bridge || {},
     };
     showToast(state.codexCheck.detail);
@@ -1231,8 +1233,8 @@ async function saveBambu(event) {
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
     byId("bambu-access-code").value = "";
-    byId("bambu-access-code").placeholder = "已保存，留空表示不修改";
-    showToast("Bambu 配置已保存，正在连接");
+    byId("bambu-access-code").placeholder = t("已保存，留空表示不修改");
+    showToast(t("Bambu 配置已保存，正在连接"));
     await refreshOverview();
   } catch (error) { showToast(error.message); }
 }
@@ -1241,17 +1243,17 @@ async function reconnectBambu() {
   try {
     const response = await fetch("/api/v1/admin/bambu/refresh", {method: "POST", headers: {"Content-Type": "application/json"}, body: "{}"});
     if (!response.ok) throw new Error((await response.json()).error || `HTTP ${response.status}`);
-    showToast("正在重新连接打印机");
+    showToast(t("正在重新连接打印机"));
   } catch (error) { showToast(error.message); }
 }
 
 async function commandBambu(action) {
-  if (action === "stop" && !window.confirm("确定要停止当前打印吗？该操作无法撤销。")) return;
+  if (action === "stop" && !window.confirm(t("确定要停止当前打印吗？该操作无法撤销。"))) return;
   try {
     const response = await fetch("/api/v1/admin/bambu/command", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({action})});
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
-    showToast(action === "stop" ? "停止指令已发送" : action === "resume" ? "继续指令已发送" : "暂停指令已发送");
+    showToast(action === "stop" ? t("停止指令已发送") : action === "resume" ? t("继续指令已发送") : t("暂停指令已发送"));
   } catch (error) { showToast(error.message); }
 }
 
@@ -1263,12 +1265,12 @@ async function refreshOverview({ announce = false } = {}) {
     const response = await fetch("/api/v1/admin/overview", { cache: "no-store" });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     renderOverview(await response.json());
-    if (announce) showToast("数据已刷新");
+    if (announce) showToast(t("数据已刷新"));
   } catch (error) {
     byId("fatal-state").hidden = false;
     const indicator = byId("bridge-state");
     indicator.dataset.state = "error";
-    setText("bridge-state-label", "管理中心连接失败");
+    setText("bridge-state-label", t("管理中心连接失败"));
   } finally {
     state.busy = false;
     byId("refresh-button").disabled = false;
@@ -1283,12 +1285,12 @@ async function updateAutoStart(enabled) {
       body: JSON.stringify({ auto_start: enabled }),
     });
     const result = await response.json();
-    if (!response.ok) throw new Error(result.error || "设置失败");
+    if (!response.ok) throw new Error(result.error || t("设置失败"));
     byId("auto-start").checked = Boolean(result.auto_start);
-    showToast(result.auto_start ? "已开启登录后自动启动" : "已关闭登录后自动启动");
+    showToast(result.auto_start ? t("已开启登录后自动启动") : t("已关闭登录后自动启动"));
   } catch (error) {
     byId("auto-start").checked = !enabled;
-    showToast(error.message || "设置失败");
+    showToast(error.message || t("设置失败"));
   }
 }
 
@@ -1316,13 +1318,13 @@ async function saveDisplaySettings(event) {
       }),
     });
     const result = await response.json();
-    if (!response.ok) throw new Error(result.error || "屏幕设置保存失败");
+    if (!response.ok) throw new Error(result.error || t("屏幕设置保存失败"));
     state.displayDirty = false;
-    setText("display-save-state", "已保存，Dotii 将自动同步");
-    showToast("屏幕与睡眠设置已保存");
+    setText("display-save-state", t("已保存，Dotii 将自动同步"));
+    showToast(t("屏幕与睡眠设置已保存"));
   } catch (error) {
-    setText("display-save-state", "保存失败");
-    showToast(error.message || "屏幕设置保存失败");
+    setText("display-save-state", t("保存失败"));
+    showToast(error.message || t("屏幕设置保存失败"));
   } finally {
     state.displaySaving = false;
     await refreshOverview();
@@ -1342,13 +1344,13 @@ async function updateModule(moduleId, enabled) {
       body: JSON.stringify({ id: moduleId, enabled }),
     });
     const result = await response.json();
-    if (!response.ok) throw new Error(result.error || "设置失败");
+    if (!response.ok) throw new Error(result.error || t("设置失败"));
     const moduleName = { codex: "Codex", bambu: "Bambu", dotii: "Dotii" }[moduleId] || moduleId;
-    showToast(`${moduleName} 页面已${enabled ? "启用" : "关闭"}`);
+    showToast(tr`${moduleName} 页面已${enabled ? t("启用") : t("关闭")}`);
   } catch (error) {
     checkbox.checked = !enabled;
     content.hidden = enabled;
-    showToast(error.message || "设置失败");
+    showToast(error.message || t("设置失败"));
   } finally {
     state.moduleSaving[moduleId] = false;
     await refreshOverview();
@@ -1359,7 +1361,7 @@ async function saveCodexUi(codexUi) {
   if (state.codexUiSaving) return;
   state.codexUiSaving = true;
   const previous = state.overview?.display_config?.codex_ui === "dual_limit" ? "dual_limit" : "classic";
-  setText("codex-ui-state", "正在保存");
+  setText("codex-ui-state", t("正在保存"));
   try {
     const response = await fetch("/api/v1/admin/display", {
       method: "POST",
@@ -1367,17 +1369,17 @@ async function saveCodexUi(codexUi) {
       body: JSON.stringify({ codex_ui: codexUi }),
     });
     const result = await response.json();
-    if (!response.ok) throw new Error(result.error || "Codex 页面样式保存失败");
+    if (!response.ok) throw new Error(result.error || t("Codex 页面样式保存失败"));
     const saved = result.display_config?.codex_ui === "dual_limit" ? "dual_limit" : "classic";
     setUiSelectValue("codex-ui", saved);
     setText("codex-ui-state", saved === "dual_limit"
-      ? "同时显示 5 小时和周剩余额度"
-      : "仅显示周剩余额度");
-    showToast(saved === "dual_limit" ? "已显示 5 小时和周剩余额度" : "已仅显示周剩余额度");
+      ? t("同时显示 5 小时和周剩余额度")
+      : t("仅显示周剩余额度"));
+    showToast(saved === "dual_limit" ? t("已显示 5 小时和周剩余额度") : t("已仅显示周剩余额度"));
   } catch (error) {
     setUiSelectValue("codex-ui", previous);
-    setText("codex-ui-state", "保存失败，已恢复原选择");
-    showToast(error.message || "Codex 页面样式保存失败");
+    setText("codex-ui-state", t("保存失败，已恢复原选择"));
+    showToast(error.message || t("Codex 页面样式保存失败"));
   } finally {
     state.codexUiSaving = false;
     await refreshOverview();
@@ -1392,10 +1394,10 @@ async function refreshFirmware() {
       method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
     });
     const result = await response.json();
-    if (!response.ok) throw new Error(result.error || "扫描失败");
-    showToast("已重新扫描 Dotii 和固件包");
+    if (!response.ok) throw new Error(result.error || t("扫描失败"));
+    showToast(t("已重新扫描 Dotii 和固件包"));
   } catch (error) {
-    showToast(error.message || "扫描失败");
+    showToast(error.message || t("扫描失败"));
   } finally {
     await refreshOverview();
   }
@@ -1413,39 +1415,39 @@ async function bluetoothAction(path, payload = {}) {
 async function installBluetooth() {
   try {
     await bluetoothAction("/api/v1/admin/bluetooth/install");
-    showToast("正在准备蓝牙连接组件");
+    showToast(t("正在准备蓝牙连接组件"));
     await refreshOverview();
-  } catch (error) { showToast(error.message || "蓝牙组件安装失败"); }
+  } catch (error) { showToast(error.message || t("蓝牙组件安装失败")); }
 }
 
 async function scanBluetooth() {
   try {
     await bluetoothAction("/api/v1/admin/bluetooth/scan");
-    showToast("正在扫描附近的 Dotii");
+    showToast(t("正在扫描附近的 Dotii"));
     await refreshOverview();
-  } catch (error) { showToast(error.message || "蓝牙扫描失败"); }
+  } catch (error) { showToast(error.message || t("蓝牙扫描失败")); }
 }
 
 async function configureBluetooth() {
   const address = byId("bluetooth-device").value;
   const ssid = byId("bluetooth-ssid").value.trim();
   const password = byId("bluetooth-password").value;
-  if (!address || !ssid) return showToast("请选择 Dotii 并填写 Wi-Fi 名称");
+  if (!address || !ssid) return showToast(t("请选择 Dotii 并填写 Wi-Fi 名称"));
   try {
     await bluetoothAction("/api/v1/admin/bluetooth/configure", {
       address, ssid, password,
     });
     byId("bluetooth-password").value = "";
-    showToast("正在通过蓝牙配置 Dotii");
+    showToast(t("正在通过蓝牙配置 Dotii"));
     await refreshOverview();
-  } catch (error) { showToast(error.message || "蓝牙配置失败"); }
+  } catch (error) { showToast(error.message || t("蓝牙配置失败")); }
 }
 
 async function flashFirmware() {
   const port = byId("firmware-port").value;
   if (!port) return;
-  const version = state.overview?.firmware?.package?.version || "当前";
-  if (!window.confirm(`将向 ${port} 写入 Dotii v${version}。烧录期间请勿拔线，是否继续？`)) return;
+  const version = state.overview?.firmware?.package?.version || t("当前");
+  if (!window.confirm(tr`将向 ${port} 写入 Dotii v${version}。烧录期间请勿拔线，是否继续？`)) return;
   const button = byId("firmware-flash");
   button.disabled = true;
   try {
@@ -1455,11 +1457,11 @@ async function flashFirmware() {
       body: JSON.stringify({ port, confirmation: "FLASH_DOTII" }),
     });
     const result = await response.json();
-    if (!response.ok) throw new Error(result.error || "无法开始烧录");
-    showToast("已开始烧录 Dotii");
+    if (!response.ok) throw new Error(result.error || t("无法开始烧录"));
+    showToast(t("已开始烧录 Dotii"));
     await refreshOverview();
   } catch (error) {
-    showToast(error.message || "烧录启动失败");
+    showToast(error.message || t("烧录启动失败"));
     await refreshOverview();
   }
 }
@@ -1480,7 +1482,7 @@ function canvasToRgb565() {
 
 async function stageCustomRender(custom) {
   if (custom.background_image && !state.customSourceRevision) {
-    throw new Error("请先上传背景图片，或关闭“显示背景图片”");
+    throw new Error(t("请先上传背景图片，或关闭“显示背景图片”"));
   }
   if (custom.background_image && !state.customSourceImage && state.customSourceRevision) {
     await loadCustomSource(
@@ -1496,7 +1498,7 @@ async function stageCustomRender(custom) {
     body: canvasToRgb565(),
   });
   const result = await response.json();
-  if (!response.ok) throw new Error(result.error || "画面生成失败");
+  if (!response.ok) throw new Error(result.error || t("画面生成失败"));
   return result.render_token;
 }
 
@@ -1560,21 +1562,21 @@ function closeCropDialog(restoreStatus = true) {
   if (restoreStatus) {
     const sourceAvailable = Boolean(state.overview?.snapshot?.custom?.source_available);
     setText("custom-image-state", sourceAvailable
-      ? "当前图片已保存，可以选择表情或重新上传。"
-      : "选择图片后可调整位置和大小。");
+      ? t("当前图片已保存，可以选择表情或重新上传。")
+      : t("选择图片后可调整位置和大小。"));
   }
 }
 
 function openCropDialog(file) {
   if (!file) return;
   if (!["image/png", "image/jpeg"].includes(file.type)) {
-    showToast("请选择 PNG 或 JPEG 图片");
+    showToast(t("请选择 PNG 或 JPEG 图片"));
     byId("custom-image-file").value = "";
     return;
   }
   const objectUrl = URL.createObjectURL(file);
   const image = new Image();
-  setText("custom-image-state", "正在读取图片");
+  setText("custom-image-state", t("正在读取图片"));
   image.onload = () => {
     state.crop.image = image;
     state.crop.file = file;
@@ -1585,19 +1587,19 @@ function openCropDialog(file) {
     byId("custom-crop-zoom").value = "100";
     byId("custom-crop-dialog").showModal();
     drawCropPreview();
-    setText("custom-image-state", "图片已读取，请完成裁切。");
+    setText("custom-image-state", t("图片已读取，请完成裁切。"));
   };
   image.onerror = () => {
     URL.revokeObjectURL(objectUrl);
     byId("custom-image-file").value = "";
-    setText("custom-image-state", "图片读取失败，请重新选择。");
-    showToast("图片读取失败，请重新选择");
+    setText("custom-image-state", t("图片读取失败，请重新选择。"));
+    showToast(t("图片读取失败，请重新选择"));
   };
   image.src = objectUrl;
 }
 
-async function uploadCustomSource(file, successMessage = "图片已裁切并上传") {
-  setText("custom-image-state", "正在保存图片");
+async function uploadCustomSource(file, successMessage = t("图片已裁切并上传")) {
+  setText("custom-image-state", t("正在保存图片"));
   try {
     const response = await fetch("/api/v1/admin/custom/source", {
       method: "POST",
@@ -1605,7 +1607,7 @@ async function uploadCustomSource(file, successMessage = "图片已裁切并上�
       body: file,
     });
     const result = await response.json();
-    if (!response.ok) throw new Error(result.error || "图片上传失败");
+    if (!response.ok) throw new Error(result.error || t("图片上传失败"));
     await loadCustomSource(
       `/api/v1/admin/custom/source?v=${encodeURIComponent(result.source_revision)}`,
       Number(result.source_revision),
@@ -1613,13 +1615,13 @@ async function uploadCustomSource(file, successMessage = "图片已裁切并上�
     byId("custom-background-image").checked = true;
     state.customDirty = true;
     renderCustomPreview();
-    setText("custom-image-state", `${successMessage}。点击保存即可显示在 Dotii 上。`);
-    setText("custom-save-state", "图片已更新，等待保存并同步");
+    setText("custom-image-state", tr`${successMessage}。点击保存即可显示在 Dotii 上。`);
+    setText("custom-save-state", t("图片已更新，等待保存并同步"));
     showToast(successMessage);
     return true;
   } catch (error) {
-    setText("custom-image-state", "图片处理失败，请重新选择");
-    showToast(error.message || "图片上传失败");
+    setText("custom-image-state", t("图片处理失败，请重新选择"));
+    showToast(error.message || t("图片上传失败"));
     return false;
   }
 }
@@ -1628,7 +1630,7 @@ async function applyCrop() {
   if (!state.crop.image) return;
   const button = byId("apply-crop");
   button.disabled = true;
-  button.textContent = "正在应用…";
+  button.textContent = t("正在应用…");
   try {
     const output = document.createElement("canvas");
     output.width = 932;
@@ -1639,14 +1641,14 @@ async function applyCrop() {
     context.fillRect(0, 0, 932, 932);
     context.drawImage(state.crop.image, placement.x, placement.y, placement.width, placement.height);
     const blob = await new Promise((resolve) => output.toBlob(resolve, "image/jpeg", 0.88));
-    if (!blob) throw new Error("无法生成裁切图片");
-    const uploaded = await uploadCustomSource(blob, "图片已准备好");
+    if (!blob) throw new Error(t("无法生成裁切图片"));
+    const uploaded = await uploadCustomSource(blob, t("图片已准备好"));
     if (uploaded) closeCropDialog(false);
   } catch (error) {
-    showToast(error.message || "裁切失败");
+    showToast(error.message || t("裁切失败"));
   } finally {
     button.disabled = false;
-    button.textContent = "应用裁切";
+    button.textContent = t("应用裁切");
   }
 }
 
@@ -1654,9 +1656,9 @@ async function selectBuiltInExpression(button) {
   document.querySelectorAll(".expression-option").forEach((item) => { item.disabled = true; });
   try {
     const response = await fetch(button.dataset.expression, { cache: "force-cache" });
-    if (!response.ok) throw new Error("内置表情读取失败");
+    if (!response.ok) throw new Error(t("内置表情读取失败"));
     const blob = await response.blob();
-    const uploaded = await uploadCustomSource(blob, `已选择“${button.dataset.expressionName}”`);
+    const uploaded = await uploadCustomSource(blob, tr`已选择“${button.dataset.expressionName}”`);
     if (!uploaded) return;
     setUiSelectValue("custom-image-fit", "cover");
     byId("custom-image-opacity").value = "100";
@@ -1666,7 +1668,7 @@ async function selectBuiltInExpression(button) {
     renderCustomPreview();
     document.querySelectorAll(".expression-option").forEach((item) => item.classList.toggle("selected", item === button));
   } catch (error) {
-    showToast(error.message || "内置表情读取失败");
+    showToast(error.message || t("内置表情读取失败"));
   } finally {
     document.querySelectorAll(".expression-option").forEach((item) => { item.disabled = false; });
   }
@@ -1678,8 +1680,8 @@ async function persistCustom({ announce = true, previousEnabled = null } = {}) {
   state.customSaving = true;
   const button = byId("save-custom");
   button.disabled = true;
-  button.textContent = "正在保存…";
-    setText("custom-save-state", "正在保存");
+  button.textContent = t("正在保存…");
+    setText("custom-save-state", t("正在保存"));
   try {
     const renderToken = await stageCustomRender(custom);
     const response = await fetch("/api/v1/admin/custom", {
@@ -1688,23 +1690,23 @@ async function persistCustom({ announce = true, previousEnabled = null } = {}) {
       body: JSON.stringify({ ...custom, render_token: renderToken }),
     });
     const result = await response.json();
-    if (!response.ok) throw new Error(result.error || "保存失败");
+    if (!response.ok) throw new Error(result.error || t("保存失败"));
     state.customDirty = false;
     populateCustomForm(result.custom || custom);
-    setText("custom-nav-state", custom.enabled ? "已启用" : "未启用");
-    if (announce) showToast(custom.enabled ? "自定义页面已启用并同步" : "自定义页面已关闭，设备入口已隐藏");
+    setText("custom-nav-state", custom.enabled ? t("已启用") : t("未启用"));
+    if (announce) showToast(custom.enabled ? t("自定义页面已启用并同步") : t("自定义页面已关闭，设备入口已隐藏"));
   } catch (error) {
     if (previousEnabled !== null) {
       byId("custom-enabled").checked = previousEnabled;
       byId("custom-settings").hidden = !previousEnabled;
       renderCustomPreview();
     }
-    setText("custom-save-state", "保存失败，请检查内容后重试");
-    showToast(error.message || "保存失败");
+    setText("custom-save-state", t("保存失败，请检查内容后重试"));
+    showToast(error.message || t("保存失败"));
   } finally {
     state.customSaving = false;
     button.disabled = false;
-    button.textContent = "保存并同步";
+    button.textContent = t("保存并同步");
   }
 }
 
@@ -1739,18 +1741,6 @@ document.querySelectorAll(".module-tab").forEach((button) => {
   });
 });
 
-document.querySelectorAll("[data-copy]").forEach((button) => {
-  button.addEventListener("click", async () => {
-    const value = byId(button.dataset.copy).textContent;
-    try {
-      await navigator.clipboard.writeText(value);
-      showToast("已复制");
-    } catch (error) {
-      showToast("复制失败，请手动选择文本");
-    }
-  });
-});
-
 byId("refresh-button").addEventListener("click", () => refreshOverview({ announce: true }));
 byId("auto-start").addEventListener("change", (event) => updateAutoStart(event.target.checked));
 byId("display-form").addEventListener("submit", saveDisplaySettings);
@@ -1758,18 +1748,18 @@ byId("dock-angle").addEventListener("input", (event) => {
   const angle = Number(event.target.value);
   state.displayDirty = true;
   setText("dock-angle-output", `${angle.toFixed(1)}°`);
-  setText("display-save-state", "有尚未保存的修改");
+  setText("display-save-state", t("有尚未保存的修改"));
 });
 DISPLAY_TIMEOUT_PAIRS.forEach(({ screenOff, sleep }) => {
   [screenOff, sleep].forEach((id) => byId(id).addEventListener("change", () => {
     normalizeTimeoutPair(id, screenOff, sleep);
     state.displayDirty = true;
-    setText("display-save-state", "有尚未保存的修改");
+    setText("display-save-state", t("有尚未保存的修改"));
   }));
 });
 byId("screen-off-page").addEventListener("change", () => {
   state.displayDirty = true;
-  setText("display-save-state", "有尚未保存的修改");
+  setText("display-save-state", t("有尚未保存的修改"));
 });
 byId("codex-enabled").addEventListener("change", (event) => updateModule("codex", event.target.checked));
 byId("codex-ui").addEventListener("change", (event) => saveCodexUi(event.target.value));
@@ -1841,10 +1831,125 @@ document.querySelectorAll(".expression-option").forEach((button) => {
 byId("custom-form").addEventListener("input", () => {
   state.customDirty = true;
   renderCustomPreview();
-  setText("custom-save-state", "有尚未保存的修改");
+  setText("custom-save-state", t("有尚未保存的修改"));
 });
 
 setupUiSelects();
 loadDotiiExpressions();
 refreshOverview();
 window.setInterval(refreshOverview, 3000);
+
+
+function renderConnectionModeDescription(mode) {
+  const descriptions = {
+    auto: t("优先使用 USB，断开后切换至已配置的 Wi-Fi；USB 同步时暂停自动深睡。"),
+    usb: t("仅通过 USB 同步，请使用数据线连接；同步时暂停自动深睡，仍可熄屏。"),
+    wifi: t("仅通过 Wi-Fi 同步，请让设备与电脑连接同一局域网。"),
+  };
+  setText("connection-mode-help", descriptions[mode] || descriptions.auto);
+}
+
+function renderConnection(overview) {
+  const config = overview.connection_settings || {};
+  const usb = overview.usb || {};
+  const now = Date.now() / 1000;
+  const usbLive = usb.state === "connected" && now - usb.last_sync < 12;
+  const wifiLive = now - Number(overview.wifi_last_seen || 0) < 20;
+  const wifiDataLive = now - Number(overview.wifi_data_last_seen || 0) < 20;
+  const active = config.mode !== "wifi" && usbLive ? "USB" : config.mode !== "usb" && wifiDataLive ? "Wi-Fi" : "--";
+  setText("device-transport", active);
+  setText("device-sync", active === "--" ? "--" : formatTime(active === "USB" ? usb.last_sync : overview.wifi_data_last_seen));
+  setText("device-connection-badge", active === "--" ? t("等待连接") : t("已连接"));
+  byId("device-connection-badge").dataset.state = active !== "--" ? "ready" : usb.state === "connecting" || usb.state === "maintenance" ? "running" : "loading";
+  setText("usb-state", usbLive ? t("已连接") : usb.state === "maintenance" ? t("固件维护中") : usb.state === "connecting" ? t("连接中") : t("未连接"));
+  setText("wifi-state", wifiLive ? (active === "USB" ? t("可用 · 备用") : t("已连接")) : usb.wifi ? t("已连接路由器") : t("未连接"));
+  const errors = {
+    firmware_update_required: t("设备固件尚不支持 USB 通信，请先更新固件。"),
+    binding_mismatch: t("设备已绑定其他管理中心，请在设备设置中重置配网后重试。"),
+    different_device: t("当前 USB 设备与已绑定设备不同，请连接原设备。"),
+    unsupported_device: t("USB 设备未通过 Dotii 身份检查。"),
+    multiple_usb_devices: t("检测到多个设备，请仅连接需要使用的 Dotii。"),
+    usb_connection_failed: t("USB 连接失败，请检查数据线或关闭占用串口的程序。"),
+    usb_component_missing: t("缺少 USB 通信组件，请安装完整管理中心。"),
+    usb_not_found: t("请用数据线连接 Dotii。"),
+  };
+  const progress = {writing:t("正在写入 Wi-Fi 配置"),connecting:t("配置已写入，正在连接 Wi-Fi"),wifi_connected:t("Wi-Fi 已连接，等待无线数据通道")};
+  let connectionStatus;
+  if (active === "USB") connectionStatus = t("USB 已连接，数据同步正常。");
+  else if (active === "Wi-Fi") connectionStatus = t("Wi-Fi 已连接，数据同步正常。");
+  else if (config.mode !== "wifi" && errors[usb.detail] && usb.detail !== "usb_not_found") connectionStatus = errors[usb.detail];
+  else if (config.mode !== "wifi" && usb.state === "maintenance") connectionStatus = t("USB 正在进行固件维护，等待恢复连接。");
+  else if (config.mode !== "wifi" && usb.state === "connecting") connectionStatus = t("正在连接 USB 设备…");
+  else if (config.mode !== "wifi" && usb.state === "connected") connectionStatus = t("USB 已连接，等待数据同步。");
+  else if (config.mode !== "usb" && wifiLive) connectionStatus = t("Wi-Fi 已连接，等待数据同步。");
+  else if (config.mode !== "usb" && usbLive && usb.wifi) connectionStatus = t("Wi-Fi 已连接路由器，等待连接管理中心。");
+  else connectionStatus = t("设备未连接。");
+  const provisionProgress = config.mode !== "wifi" ? progress[usb.provision_state] : "";
+  setText("device-connection-status", provisionProgress ? `${connectionStatus} ${provisionProgress}` : connectionStatus);
+  renderConnectionModeDescription(config.mode || "auto");
+  if (config.language) window.DotiiI18n.setLanguage(config.language);
+  setUiSelectValue("connection-mode", config.mode || "auto");
+  setUiSelectValue("app-language", config.language || "zh-CN");
+  setUiSelectValue("provision-method", byId("provision-method").value);
+  renderProvisionMethod();
+}
+
+function updateBluetoothRepairVisibility(bluetooth = state.overview?.bluetooth || {}) {
+  byId("bluetooth-install").hidden = byId("provision-method").value === "usb"
+    || bluetooth.available === false || Boolean(bluetooth.dependency_ready);
+}
+
+function renderProvisionMethod() {
+  const usb = byId("provision-method").value === "usb";
+  byId("usb-configure").hidden = !usb;
+  byId("usb-configure").disabled = state.overview?.usb?.state !== "connected" || !byId("bluetooth-ssid").value.trim();
+  for (const id of ["bluetooth-configure","bluetooth-scan","bluetooth-detail"]) byId(id).hidden = usb;
+  byId("bluetooth-device").closest(".time-field")?.toggleAttribute("hidden", usb);
+  byId("bluetooth-badge").hidden = usb;
+  updateBluetoothRepairVisibility();
+}
+
+async function saveConnection(changes) {
+  try {
+    const result = await bluetoothAction("/api/v1/admin/connection", changes);
+    if (state.overview) state.overview.connection_settings = result.connection_settings;
+    if (changes.language) window.DotiiI18n.setLanguage(result.connection_settings.language);
+    await refreshOverview();
+    showToast(t("设置已保存"));
+  } catch (error) {
+    if (state.overview) renderConnection(state.overview);
+    showToast(error.message);
+  }
+}
+
+byId("connection-mode").addEventListener("change", event => {
+  renderConnectionModeDescription(event.target.value);
+  saveConnection({mode:event.target.value});
+});
+byId("app-language").addEventListener("change", event => saveConnection({language:event.target.value}));
+byId("provision-method").addEventListener("change", renderProvisionMethod);
+byId("bluetooth-ssid").addEventListener("input", renderProvisionMethod);
+byId("usb-configure").addEventListener("click", async () => {
+  try {
+    byId("usb-configure").disabled = true;
+    await bluetoothAction("/api/v1/admin/usb/configure", {ssid:byId("bluetooth-ssid").value.trim(),password:byId("bluetooth-password").value});
+    byId("bluetooth-password").value = "";
+    showToast(t("正在通过 USB 配置 Wi-Fi"));
+    await refreshOverview();
+  } catch (error) { showToast(error.message); }
+});
+
+window.addEventListener("dotii-language-changed", () => {
+  if (state.overview) renderOverview(state.overview);
+  // Configuration revisions do not change when only the display language does.
+  renderDotiiConfigEditor();
+  if (state.dotiiExpressions.length) {
+    setText("dotii-library-state", tr`${state.dotiiExpressions.length} 个内置动画`);
+  }
+  if (state.dotiiConfig) {
+    setText("dotii-config-save-state", state.dotiiConfigSaving ? t("正在保存")
+      : state.dotiiConfigDirty ? t("有尚未保存的修改") : t("配置已同步"));
+  }
+});
+
+})();

@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import os
 import queue
+import re
 import shutil
 import subprocess
 import threading
@@ -108,6 +109,14 @@ def _safe_message(value: str, maximum: int | None = None) -> str:
         return marker[:maximum].decode("ascii")
     visible = encoded[: maximum - len(marker)].decode("utf-8", errors="ignore").rstrip()
     return visible + marker.decode("ascii")
+
+
+def _display_agent_text(value: str) -> str:
+    """Remove app-only annotations from the device's plain-text reply."""
+    value = re.sub(r"<oai-mem-citation>.*?</oai-mem-citation>", "", value, flags=re.S)
+    value = re.sub(r":{1,2}codex-file-citation\[[^\]]*\](?:\{[^}]*\})?", "", value)
+    value = re.sub(r"\ue200(?:cite|filecite)\ue202.*?\ue201", "", value, flags=re.S)
+    return value
 
 
 def _resolve_codex_command(explicit: str | None, runtime_folder: Path) -> list[str]:
@@ -534,7 +543,7 @@ def thread_snapshot(thread: Any, now_epoch: int | None = None) -> dict[str, Any]
         display_messages = []
         conversation_mode = "empty"
 
-    safe_messages = [safe for value in display_messages if (safe := _safe_message(value))]
+    safe_messages = [safe for value in display_messages if (safe := _safe_message(_display_agent_text(value)))]
     if safe_messages:
         assistant_message = safe_messages[-1]
 

@@ -313,12 +313,14 @@ static void input_task(void *argument)
                 } else if (raw_external_power != external_power &&
                            now_ms - power_candidate_since >= PMU_POWER_DEBOUNCE_MS) {
                     external_power = raw_external_power;
+                    last_battery_read = -PMU_BATTERY_INTERVAL_MS;
                     publish_power = true;
                 }
             }
             last_pmu_read = now_ms;
 
-            if (now_ms - last_battery_read >= PMU_BATTERY_INTERVAL_MS) {
+            if (now_ms - last_battery_read >=
+                (battery_percent <= 100 ? PMU_BATTERY_INTERVAL_MS : HARDWARE_RETRY_INTERVAL_MS)) {
                 uint8_t percent = 0xFF;
                 uint16_t battery_mv = 0;
                 uint16_t system_mv = 0;

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sys
-import tempfile
+from dotii_test_support import temporary_directory
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -241,7 +241,7 @@ class CodexUiConfigTests(unittest.TestCase):
             validate_display_config({"screen_off_page": "bambu"})
 
     def test_startup_command_uses_absolute_paths_and_startup_mode(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
+        with temporary_directory() as temporary:
             folder = Path(temporary)
             pythonw = folder / "pythonw.exe"
             app_script = folder / "Dotii 管理中心" / "bridge_app.py"
@@ -256,7 +256,7 @@ class CodexUiConfigTests(unittest.TestCase):
                 )
 
     def test_packaged_startup_targets_management_center_not_bridge(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
+        with temporary_directory() as temporary:
             management_center = Path(temporary) / "DotiiManagementCenter.exe"
             management_center.touch()
             with mock.patch("codex_bridge.current_platform", return_value=WindowsPlatformAdapter()):
