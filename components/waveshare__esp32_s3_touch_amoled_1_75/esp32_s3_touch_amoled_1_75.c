@@ -949,11 +949,11 @@ static lv_display_t *bsp_display_lcd_init(const bsp_display_cfg_t *cfg)
             .rotation = cfg->rotation,
             .hor_res = BSP_LCD_H_RES,
             .ver_res = BSP_LCD_V_RES,
-            /* QSPI DMA cannot transmit directly from PSRAM on ESP32-S3. Two
-               12-line LVGL buffers plus one 12-line transform tile use about
-               33 KiB and preserve the prior Wi-Fi internal-memory budget. */
+            /* The transform callback copies LVGL pixels with the CPU, then
+               transmits only the separate internal dma_tile. Keep both draw
+               buffers in PSRAM to leave 22 KiB for Wi-Fi/BLE and wake-up. */
             .buffer_height = LCD_TRANSFORM_TILE_SIZE,
-            .use_psram = false,
+            .use_psram = true,
             .enable_ppa_accel = false,
             .require_double_buffer = true,
         },
