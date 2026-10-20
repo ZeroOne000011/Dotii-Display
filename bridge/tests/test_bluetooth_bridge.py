@@ -387,5 +387,83 @@ class BluetoothPairingRecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(_is_stale_windows_pairing_error(OSError("Device disconnected")))
 
 
+class WindowsBluetoothRestartTests(unittest.TestCase):
+    @staticmethod
+    def cancelled():
+        error = OSError("[WinError -2147023673] The operation was canceled.")
+        error.winerror = -2147023673
+        return error
+
+    def create_bridge(self, folder, platform="windows"):
+        bridge = BluetoothBridge(Path(folder), platform_adapter=SimpleNamespace(name=platform))
+        bridge.last_address = "AA:BB"
+        bridge.dependency_ready = lambda: True
+        bridge.stop_event.set()
+        bridge.operation_state = "success"
+        bridge.connection_state = "restarting"
+        bridge.connection_detail = "Dotii 正在重启"
+        bridge._restart_status_deadline = 130.0
+        return bridge
+
+    def test_restart_cancellation_waits_for_status_recovery_then_stops_suppressing(self):
+        with temporary_directory() as folder, mock.patch("bluetooth_bridge.time.monotonic", return_value=110.0):
+            bridge = self.create_bridge(folder)
+            bridge._read_status = mock.AsyncMock(side_effect=self.cancelled())
+            bridge._monitor()
+            self.assertEqual(bridge.connection_state, "restarting")
+            self.assertEqual(bridge.connection_detail, "Dotii 正在重启")
+            self.assertFalse(bridge.operation_lock.locked())
+
+            bridge._read_status = mock.AsyncMock(return_value={"name": "Dotii", "wifi": True})
+            bridge._monitor()
+            self.assertTrue(bridge.device_connected)
+            self.assertEqual(bridge.connection_state, "connected")
+            self.assertEqual(bridge._restart_status_deadline, 0.0)
+
+            bridge._read_status = mock.AsyncMock(side_effect=self.cancelled())
+            bridge._monitor()
+            self.assertEqual(bridge.connection_state, "error")
+
+    def test_grace_does_not_hide_expiry_other_errors_or_macos(self):
+        denied = self.cancelled()
+        denied.reason = SimpleNamespace(name="DENIED_BY_USER")
+        cases = [
+            ("windows", "success", 130.0, self.cancelled(), "error"),
+            ("macos", "success", 110.0, self.cancelled(), "error"),
+            ("windows", "error", 110.0, self.cancelled(), "error"),
+            ("windows", "success", 110.0, TimeoutError(), "timeout"),
+            ("windows", "success", 110.0, denied, "denied"),
+        ]
+        for platform, operation, now, error, expected in cases:
+            with self.subTest(platform=platform, operation=operation, error=error), temporary_directory() as folder:
+                bridge = self.create_bridge(folder, platform)
+                bridge.operation_state = operation
+                bridge._read_status = mock.AsyncMock(side_effect=error)
+                with mock.patch("bluetooth_bridge.time.monotonic", return_value=now):
+                    bridge._monitor()
+                self.assertEqual(bridge.connection_state, expected)
+                self.assertFalse(bridge.operation_lock.locked())
+
+    def test_only_successful_windows_configure_starts_restart_grace(self):
+        for platform, expected in (("windows", 130.0), ("macos", 0.0)):
+            with self.subTest(platform=platform), temporary_directory() as folder:
+                bridge = self.create_bridge(folder, platform)
+                bridge._restart_status_deadline = 0.0
+                bridge._configure_async = mock.AsyncMock(return_value={"ok": True})
+                with mock.patch("bluetooth_bridge.time.monotonic", return_value=100.0):
+                    bridge._configure("AA:BB", b"{}")
+                self.assertEqual(bridge._restart_status_deadline, expected)
+
+    def test_cancel_during_configuration_remains_a_failure(self):
+        with temporary_directory() as folder:
+            bridge = self.create_bridge(folder)
+            bridge._restart_status_deadline = 0.0
+            bridge._configure_async = mock.AsyncMock(side_effect=self.cancelled())
+            bridge._configure("AA:BB", b"{}")
+            self.assertEqual(bridge.operation_state, "error")
+            self.assertIn("2147023673", bridge.operation_detail)
+            self.assertEqual(bridge._restart_status_deadline, 0.0)
+
+
 if __name__ == "__main__":
     unittest.main()

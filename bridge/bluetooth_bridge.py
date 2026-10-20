@@ -34,6 +34,12 @@ def _is_stale_windows_pairing_error(error: BaseException) -> bool:
     return "could not start notify" in message and "unreachable" in message
 
 
+def _is_windows_cancelled_error(error: BaseException) -> bool:
+    return getattr(error, "winerror", None) in {1223, -2147023673} or (
+        "[WinError -2147023673]" in str(error)
+    )
+
+
 def _bluetooth_error(error: Exception) -> tuple[str, str]:
     """Return a stable availability state and a user-facing diagnostic."""
     message = str(error)
@@ -146,6 +152,7 @@ class BluetoothBridge:
         self.operation_detail = "尚未扫描 Dotii"
         self.operation_log = ""
         self.updated_at_epoch = 0
+        self._restart_status_deadline = 0.0
         self.permission_state = "unknown" if self.platform.name == "macos" else "not_applicable"
         self._add_dependency_path()
 
@@ -471,6 +478,8 @@ class BluetoothBridge:
                 self.device_connected = False
                 self.connection_state = "restarting"
                 self.connection_detail = "Dotii 正在重启"
+                if self.platform.name == "windows":
+                    self._restart_status_deadline = time.monotonic() + 30.0
                 self.updated_at_epoch = int(time.time())
         except Exception as error:
             permission_state, detail = _bluetooth_error(error)
@@ -504,6 +513,8 @@ class BluetoothBridge:
                     self.device_connected = bool(status)
                     self.connection_state = "connected" if status else "error"
                     self.connection_detail = "" if status else "设备状态响应为空"
+                    if status:
+                        self._restart_status_deadline = 0.0
                     if status and not any(
                         item.get("address") == self.last_address for item in self.devices
                     ):
@@ -516,6 +527,18 @@ class BluetoothBridge:
             except Exception as error:
                 permission_state, detail = _bluetooth_error(error)
                 with self.lock:
+                    # A successful Windows provisioning disconnects GATT while
+                    # the device restarts. WinRT can cancel that status read;
+                    # it is not a cancellation of the configuration operation.
+                    if (
+                        self.platform.name == "windows"
+                        and self.operation_state == "success"
+                        and self.connection_state == "restarting"
+                        and time.monotonic() < self._restart_status_deadline
+                        and permission_state not in BLUETOOTH_AVAILABILITY_STATES
+                        and _is_windows_cancelled_error(error)
+                    ):
+                        continue
                     if permission_state in BLUETOOTH_AVAILABILITY_STATES:
                         self.permission_state = permission_state
                     self.device_connected = False
