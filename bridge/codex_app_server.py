@@ -27,6 +27,14 @@ class AppServerError(RuntimeError):
     """Raised when the Codex app-server cannot satisfy a request."""
 
 
+def _print_diagnostic(message: str) -> None:
+    """A legacy console encoding must not interrupt collection or recovery."""
+    try:
+        print(message)
+    except UnicodeEncodeError:
+        print(message.encode("ascii", errors="backslashreplace").decode("ascii"))
+
+
 def _as_number(value: Any) -> float | None:
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         return float(value)
@@ -210,7 +218,7 @@ class AppServerClient:
         for line in self.process.stderr:
             cleaned = line.strip()
             if cleaned:
-                print(f"[App Server] {cleaned}")
+                _print_diagnostic(f"[App Server] {cleaned}")
 
     def _send(self, message: dict[str, Any]) -> None:
         if self.process is None or self.process.stdin is None or self.process.poll() is not None:
@@ -694,7 +702,7 @@ class CodexAppServerSource:
                 unreadable += 1
                 thread_id = str(selected.get("id") or "")
                 if thread_id not in unreadable_ids:
-                    print(f"Codex 任务读取失败，已跳过该任务：{error}")
+                    _print_diagnostic(f"Codex 任务读取失败，已跳过该任务：{error}")
                 unreadable_ids.add(thread_id)
                 continue
             thread = detail.get("thread") if isinstance(detail, dict) else None
@@ -725,7 +733,7 @@ class CodexAppServerSource:
         elif unreadable:
             # Do not erase the last valid task view when every selected
             # historical thread is temporarily unreadable.
-            print("Codex 没有可读取的任务，保留上一次成功的任务快照")
+            _print_diagnostic("Codex 没有可读取的任务，保留上一次成功的任务快照")
 
     @staticmethod
     def _is_active_hint(item: Any) -> bool:
@@ -791,7 +799,7 @@ class CodexAppServerSource:
                 if (not bool(getattr(self, cache_name, False)) or
                         failures >= TRANSIENT_REFRESH_FAILURE_LIMIT):
                     raise
-                print(f"Codex {label}暂时无法刷新，继续使用上次成功数据：{error}")
+                _print_diagnostic(f"Codex {label}暂时无法刷新，继续使用上次成功数据：{error}")
         return {
             "schema_version": 1,
             "generated_at_epoch": int(time.time()),
@@ -830,7 +838,7 @@ def run_collector(
         try:
             source = CodexAppServerSource(runtime_folder, cwd, codex_command)
             source.start()
-            print("Codex App Server 已连接，正在读取账户与任务状态")
+            _print_diagnostic("Codex App Server 已连接，正在读取账户与任务状态")
             if report is not None:
                 report("online", "Codex App Server 已连接")
             backoff = 2.0
@@ -849,7 +857,7 @@ def run_collector(
                         break
                     stop.wait(min(0.25, remaining))
         except (AppServerError, OSError, ValueError) as error:
-            print(f"Codex App Server 暂时不可用：{error}")
+            _print_diagnostic(f"Codex App Server 暂时不可用：{error}")
             if report is not None:
                 report("error", str(error))
             deadline = time.monotonic() + backoff

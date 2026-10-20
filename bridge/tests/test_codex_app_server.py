@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import sys
 from dotii_test_support import temporary_directory
 import unittest
@@ -39,7 +40,8 @@ class CodexAppServerProbeTests(unittest.TestCase):
             "thread/list": {"data": [{"id": "thread-1"}, {"id": "thread-2"}]},
         }
         with temporary_directory() as temporary:
-            with mock.patch("codex_app_server.AppServerClient") as client_type:
+            with mock.patch("codex_app_server._resolve_codex_command", return_value=["codex-test-stub"]), \
+                 mock.patch("codex_app_server.AppServerClient") as client_type:
                 client_type.return_value.request.side_effect = lambda method, params=None: responses[method]
                 result = probe_app_server(Path(temporary), BRIDGE.parent)
 
@@ -54,7 +56,8 @@ class CodexAppServerProbeTests(unittest.TestCase):
 
     def test_probe_reports_logged_out_without_calling_account_data_apis(self) -> None:
         with temporary_directory() as temporary:
-            with mock.patch("codex_app_server.AppServerClient") as client_type:
+            with mock.patch("codex_app_server._resolve_codex_command", return_value=["codex-test-stub"]), \
+                 mock.patch("codex_app_server.AppServerClient") as client_type:
                 client_type.return_value.request.return_value = {"account": None, "requiresOpenaiAuth": True}
                 result = probe_app_server(Path(temporary), BRIDGE.parent)
 
@@ -63,6 +66,17 @@ class CodexAppServerProbeTests(unittest.TestCase):
         self.assertFalse(result["account"]["logged_in"])
         self.assertIn("尚未登录", result["detail"])
         self.assertEqual(client_type.return_value.request.call_count, 1)
+
+    def test_probe_reports_missing_cli_without_starting_an_app_server(self) -> None:
+        with temporary_directory() as temporary:
+            with mock.patch("codex_app_server._resolve_codex_command", side_effect=AppServerError("CLI unavailable")), \
+                 mock.patch("codex_app_server.AppServerClient") as client_type:
+                result = probe_app_server(Path(temporary), BRIDGE.parent)
+        self.assertFalse(result["ok"])
+        self.assertFalse(result["cli"]["available"])
+        self.assertFalse(result["app_server"]["available"])
+        self.assertEqual(result["detail"], "CLI unavailable")
+        client_type.assert_not_called()
 
 
 class CodexAccountSnapshotTests(unittest.TestCase):
@@ -470,7 +484,9 @@ class CodexMultiTaskTests(unittest.TestCase):
         source.task = thread_snapshot(None)
         source.tasks = [source.task]
         source.active_thread_ids = set()
-        source.refresh_thread()
+        with io.TextIOWrapper(io.BytesIO(), encoding="cp1252") as output:
+            with mock.patch("sys.stdout", output):
+                source.refresh_thread()
 
         self.assertEqual([task["thread_id"] for task in source.tasks], ["thread-readable"])
 
@@ -499,6 +515,20 @@ class CodexSnapshotResilienceTests(unittest.TestCase):
         snapshot = source.snapshot()
         self.assertEqual(snapshot["codex"]["plan_type"], "plus")
         self.assertEqual(source._account_refresh_failures, 1)
+
+    def test_legacy_console_cannot_interrupt_snapshot_recovery(self) -> None:
+        source = self._source()
+        source.refresh_account = mock.Mock(side_effect=AppServerError("暂时不可用"))
+        buffer = io.BytesIO()
+        with io.TextIOWrapper(buffer, encoding="cp1252") as output:
+            with mock.patch("sys.stdout", output):
+                snapshot = source.snapshot()
+            output.flush()
+            diagnostic = buffer.getvalue().decode("cp1252")
+        self.assertEqual(snapshot["codex"]["plan_type"], "plus")
+        self.assertEqual(source._account_refresh_failures, 1)
+        self.assertIn("Codex", diagnostic)
+        self.assertIn("\\u6682", diagnostic)
 
     def test_repeated_account_failure_eventually_restarts_source(self) -> None:
         source = self._source()
