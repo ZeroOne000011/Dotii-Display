@@ -4,9 +4,9 @@ Dotii 是一套由 ESP32-S3 圆形 AMOLED 桌面屏与 Windows/macOS 端“Dotii
 
 ![Dotii 桌面交互屏产品渲染图](assets/dotii-product-render.png)
 
-[Windows 下载](https://github.com/ZeroOne000011/Dotii-Display/releases/tag/v1.1.1) · [macOS 下载（预览版）](https://github.com/ZeroOne000011/Dotii-Display/releases/tag/v1.1.1-macos-preview.1) · [MakerWorld 模型与打印文件](https://makerworld.com.cn/zh/models/2918764-dotii-zhuo-mian-jiao-hu-ping#profileId-3421401) · [开发指南](开发指南.md)
+[Windows 下载](https://github.com/ZeroOne000011/Dotii-Display/releases/tag/v1.2) · [macOS 下载（预览版）](https://github.com/ZeroOne000011/Dotii-Display/releases/tag/v1.1.1-macos-preview.1) · [MakerWorld 模型与打印文件](https://makerworld.com.cn/zh/models/2918764-dotii-zhuo-mian-jiao-hu-ping#profileId-3421401) · [开发指南](开发指南.md)
 
-当前源码版本为 **1.2**，1.2 正式安装包尚未发布；以上下载入口对应已发布的 **Windows 1.1.1** 和 **macOS 1.1.1 预览版**。macOS 1.2 已完成当前 Apple Silicon Mac 的本机功能验收；共用改动仍待 Windows 回归，跨电脑、最低系统与正式分发验证尚未完成。
+当前源码与 Windows 便携包版本为 **1.2**。macOS 下载入口仍为 **1.1.1 预览版**；macOS 1.2 源码已包含在本仓库中，最新共用修改尚待在 Mac 上重新构建和验证，暂不提供 1.2 DMG。
 
 1.2 增加管理中心与圆屏的中英文同步切换、USB 配网和 USB 数据同步，以及自动（USB 优先）、仅 USB、仅 Wi-Fi 三种连接方式。语言入口位于“设置 → Dotii 管理中心 → 应用设置 → 语言/Language”。
 
@@ -14,7 +14,7 @@ Dotii 是一套由 ESP32-S3 圆形 AMOLED 桌面屏与 Windows/macOS 端“Dotii
 
 | 系统 | 支持范围 | 下载内容 | 当前状态 |
 | --- | --- | --- | --- |
-| Windows | Windows 10/11 x64 | `DotiiManagementCenter-1.1.1-portable.zip` | 正式版 |
+| Windows | Windows 10/11 x64 | `DotiiManagementCenter-1.2-portable.zip` | 1.2 正式版 |
 | macOS | Apple Silicon、macOS 13.5 及以上 | `DotiiManagementCenter-macOS-arm64-1.1.1.dmg` | 预览版，未经苹果公证 |
 
 macOS 预览版目前不支持 Intel Mac。由于尚未经过苹果公证，首次打开时需要在“系统设置 > 隐私与安全性”中手动允许。Windows 和 macOS 安装包均已包含运行所需组件，普通用户无需安装 Python、Node.js、Codex CLI、FFmpeg 或 ESP-IDF。
@@ -32,10 +32,10 @@ macOS 预览版目前不支持 Intel Mac。由于尚未经过苹果公证，首�
 
 ## Windows 快速上手
 
-1. 从 [Windows Release](https://github.com/ZeroOne000011/Dotii-Display/releases/tag/v1.1.1) 下载便携包，完整解压到一个新文件夹。
+1. 从 [Windows Release](https://github.com/ZeroOne000011/Dotii-Display/releases/tag/v1.2) 下载 `DotiiManagementCenter-1.2-portable.zip`，完整解压到一个新文件夹。
 2. 双击 `DotiiManagementCenter.exe`。程序会驻留在系统托盘，并在浏览器打开管理中心；默认地址为 `http://127.0.0.1:8787`。
 3. 用 USB 线连接 Dotii，在“设置”页面识别设备。首次使用时可通过“一键烧录”写入随包固件。
-4. 1.2 可通过 USB 或蓝牙配网，将 2.4 GHz Wi-Fi 和管理中心连接信息同步到 Dotii；USB 也可直接同步数据。旧版下载包仍使用蓝牙配网。
+4. 通过 USB 或蓝牙将 2.4 GHz Wi-Fi 和管理中心连接信息同步到 Dotii。在连接方式中选择“自动（USB 优先）”“仅 USB”或“仅 Wi-Fi”；只通过 USB 同步数据时无需连接路由器。
 5. 按需启用 Codex 或 Bambu，并在对应页面完成配置。
 
 请保持解压后的目录结构不变，不要单独移动或运行 `DotiiBridge.exe`。关闭浏览器不会退出管理中心；重新打开页面、查看日志或退出程序时，请使用系统托盘中的 Dotii 图标。
@@ -45,6 +45,12 @@ macOS 预览版目前不支持 Intel Mac。由于尚未经过苹果公证，首�
 先从系统托盘彻底退出旧版管理中心，再把新版 ZIP 完整解压到新的空文件夹。确认新版正常后，可以删除旧版程序文件夹；不要把新版直接覆盖到旧目录。
 
 现有设置保存在 `%LOCALAPPDATA%\StateDisplay`，删除旧版程序文件夹不会清除配置。若新版本包含 Dotii 固件更新，请在新版管理中心中重新执行“一键烧录”。
+
+可在 ZIP 所在目录执行以下命令，将结果与同一 Release 附带的 `SHA256SUMS.txt` 比较：
+
+```powershell
+Get-FileHash .\DotiiManagementCenter-1.2-portable.zip -Algorithm SHA256
+```
 
 ## macOS 快速上手
 
@@ -78,7 +84,7 @@ shasum -a 256 -c DotiiManagementCenter-macOS-arm64-1.1.1.dmg.sha256
 - **Bambu 打印状态**：通过局域网读取打印进度、温度、耗材和图层，并在打印机支持时显示相机画面。
 - **自定义页面**：编辑文字、颜色、图片和圆环，保存后同步到 466 × 466 圆屏。
 - **Dotii 表情**：显示待机、眨眼、连接、工作、完成、失败等状态动画。
-- **设备管理**：提供蓝牙配网、重置配网、显示设置、休眠设置、登录自启动和受保护的一键烧录。
+- **设备管理**：1.2 提供 USB/蓝牙配网、USB/Wi-Fi 数据同步、中英文同步、重置配网、显示与休眠设置、登录自启动和受保护的一键烧录。macOS 旧预览包的功能以对应版本说明为准。
 
 Bambu 详情页显示相机画面和文件名，耗材与层数分成两行居中显示；管理中心和设备详情页均不提供暂停、继续或停止打印操作。
 
@@ -125,7 +131,9 @@ macOS 用户还应在“系统设置 > 隐私与安全性 > 蓝牙”中确认�
 
 请长按 Dotii 右侧按钮进入“设置”，再长按“重置配网”1.2 秒。设备会清除 Wi-Fi、管理中心绑定和蓝牙配对后重启；随后在新电脑的管理中心重新扫描并配网，通常无需重新烧录固件。
 
-若系统仍保留旧配对，Windows 1.1.1 会尝试自动恢复；macOS 请在“系统设置 > 蓝牙”中忽略 Dotii 后重新扫描。
+若系统仍保留旧配对，Windows 会尝试自动恢复一次；macOS 请在“系统设置 > 蓝牙”中忽略 Dotii 后重新扫描。
+
+两个平台共用同一套设备固件，无需因为更换电脑系统而重新烧录。升级功能时应使用对应管理中心随包提供的固件；完成配网重置后，语言、方向及休眠等显示设置仍会保留。
 
 </details>
 
@@ -149,9 +157,10 @@ Windows 日志位于 `%LOCALAPPDATA%\StateDisplay\bridge.log`，macOS 日志位�
 普通用户不需要准备开发环境。修改源码请阅读 [开发指南](开发指南.md)：
 
 - [架构、固件与设备协议](开发指南.md#1-设计边界)
+- [新增模块](开发指南.md#7-新模块开发流程)
 - [Windows 开发与打包](开发指南.md#windows-development)
 - [macOS 开发与打包](开发指南.md#macos-development)
-- [GitHub 发布流程](开发指南.md#github-release)
+- [测试与调试](开发指南.md#14-测试与调试)
 
 平台共用固件、后台业务、管理网页和设备协议。平台差异集中在对应适配器、宿主与打包目录中。
 
