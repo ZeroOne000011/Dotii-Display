@@ -1,6 +1,7 @@
 param(
     [string]$Version = "",
     [string]$FirmwareBuildDirectory = ".codex/build",
+    [string]$OutputDirectory = "release",
     [switch]$Clean
 )
 
@@ -33,8 +34,14 @@ $Python = Join-Path $VenvRoot "Scripts\python.exe"
 $WorkRoot = Join-Path $CodexRoot "packaging-work"
 $DistRoot = Join-Path $WorkRoot "dist"
 $BuildRoot = Join-Path $WorkRoot "build"
-$FinalReleaseRoot = Join-Path $ProjectRoot "release\DotiiManagementCenter-$Version"
-$FinalArchive = Join-Path $ProjectRoot "release\DotiiManagementCenter-$Version-portable.zip"
+$ReleaseParent = [IO.Path]::GetFullPath((Join-Path $ProjectRoot $OutputDirectory))
+$AllowedReleaseParent = [IO.Path]::GetFullPath((Join-Path $ProjectRoot 'release'))
+if ($ReleaseParent -ne $AllowedReleaseParent -and
+    -not $ReleaseParent.StartsWith($AllowedReleaseParent + '\', [StringComparison]::OrdinalIgnoreCase)) {
+    throw "Output directory must be inside the project release directory."
+}
+$FinalReleaseRoot = Join-Path $ReleaseParent "DotiiManagementCenter-$Version"
+$FinalArchive = Join-Path $ReleaseParent "DotiiManagementCenter-$Version-portable.zip"
 $ReleaseRoot = Join-Path $WorkRoot "DotiiManagementCenter-$Version"
 $Archive = Join-Path $WorkRoot "DotiiManagementCenter-$Version-portable.zip"
 $BridgeVersionFile = Join-Path $WorkRoot "packaging-version-bridge.txt"
