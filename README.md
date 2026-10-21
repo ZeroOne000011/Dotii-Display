@@ -146,7 +146,6 @@ Windows 首次允许局域网访问时可能显示防火墙窗口，程序名称
 
 请阅读[开发指南](开发指南.md)，按需要查看[架构与源码](开发指南.md#architecture)、[模块扩展](开发指南.md#modules)、[测试与调试](开发指南.md#validation)、[Windows 构建](开发指南.md#windows-development)或 [macOS 构建](开发指南.md#macos-development)。
 
-该文档也可用于 AI 工具进行辅助开发
 
 ## 社区贡献与扩展
 
