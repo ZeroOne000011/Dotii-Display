@@ -60,7 +60,7 @@ Dotii 是一套由 ESP32-S3 圆形 AMOLED 桌面屏与 Windows/macOS 端“Dotii
 - **自定义页面**：编辑文字、颜色、图片和圆环，并同步到 Dotii。
 - **Dotii 表情**：显示待机、眨眼、连接、工作、完成、失败等动画。
 
-## 更新、校验与卸载
+## 更新与卸载
 
 更新前先从托盘或菜单栏退出旧版管理中心。
 
@@ -73,20 +73,6 @@ Dotii 是一套由 ESP32-S3 圆形 AMOLED 桌面屏与 Windows/macOS 端“Dotii
 替换或删除程序不会清除上述配置；需要完全卸载时再手动删除配置目录。配置可能包含 Bambu 访问码和设备连接信息，请勿上传或分享。
 
 版本包含设备功能更新时，使用新版管理中心的一键烧录；常规烧录保留 NVS 配置。更换电脑系统无需重复烧录同一版本固件。
-
-Windows：在 ZIP 所在目录计算哈希，与同一 Release 的 `SHA256SUMS.txt` 比较：
-
-```powershell
-Get-FileHash .\DotiiManagementCenter-1.2-portable.zip -Algorithm SHA256
-```
-
-macOS：将 DMG 与同名 `.dmg.sha256` 放在同一目录，进入该目录执行，结果应为 `OK`：
-
-```bash
-shasum -a 256 -c DotiiManagementCenter-macOS-arm64-1.2.dmg.sha256
-```
-
-校验不一致时请重新下载，不使用该文件。
 
 ## 常见问题
 

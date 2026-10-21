@@ -17,8 +17,6 @@ The current version is **1.2**. Both platforms use the same device firmware and 
 | Windows | Windows 10/11 x64 | `DotiiManagementCenter-1.2-portable.zip` | Stable |
 | macOS | Apple Silicon, macOS 13.5 or later | `DotiiManagementCenter-macOS-arm64-1.2.dmg` | Preview, ad-hoc signed, not notarized by Apple |
 
-The Mac preview does not support Intel. It has been tested on one Apple Silicon Mac running macOS 27.0.1. Version 13.5 is the minimum declared by the build; it has not been tested on that OS or another Mac. Automatic startup after a real logout/login, Mac sleep recovery, and a fresh permissions environment still need testing.
-
 ## What you need
 
 | Category | Item | Quantity | Purchase / documentation |
@@ -35,7 +33,7 @@ The Mac preview does not support Intel. It has been tested on one Apple Silicon 
 ### Windows
 
 1. Download the Windows ZIP, extract the entire archive into a new folder, and run `DotiiManagementCenter.exe`.
-2. The app stays in the system tray and opens the dashboard. You can also visit `http://127.0.0.1:8787`.
+2. The app stays in the system tray. Right-click the tray icon to open the dashboard, or visit `http://127.0.0.1:8787`.
 3. Follow “Connect Dotii” below to set up the device.
 
 Keep the extracted directory structure intact. Do not move or run `DotiiBridge.exe` separately. Closing the browser leaves the app running; use the tray icon to open the dashboard, view logs, or quit.
@@ -45,24 +43,23 @@ Keep the extracted directory structure intact. Do not move or run `DotiiBridge.e
 1. Download and open the DMG, then drag `DotiiManagementCenter-1.2.app` into Applications.
 2. Open the app. If macOS blocks it, choose “Open Anyway” in System Settings → Privacy & Security and confirm. You do not need to disable system security globally. Managed Macs may prevent unnotarized apps from running.
 3. Allow Bluetooth and local network access when prompted. Use the menu bar icon to open the dashboard, view logs, or quit.
-4. Follow the device setup steps below.
+4. Follow “Connect Dotii” below to set up the device.
 
 ### Connect Dotii
 
-1. Connect the device with a USB data cable and identify Dotii on the dashboard’s Settings page. For first use, flash the included firmware using the firmware flashing action.
-2. Choose Auto (USB preferred), USB only, or Wi-Fi only. For Wi-Fi, send the 2.4 GHz network and Management Center connection settings through USB or Bluetooth. USB-only data sync does not require a router.
-3. Switch languages under Settings → Dotii Management Center → App settings → 语言/Language. The dashboard and screen change together; task text, filenames, and custom content retain their original language.
+1. Switch languages under Settings → Dotii Management Center → App settings → 语言/Language. The dashboard and screen change together; task text, filenames, and custom content retain their original language.
+2. Connect the device with a USB data cable and identify Dotii on the dashboard’s Settings page. For first use, flash the included firmware using the firmware flashing action.
+3. Choose Auto (USB preferred), USB only, or Wi-Fi only as needed. For Wi-Fi, send the 2.4 GHz network and Management Center connection settings through USB or Bluetooth. USB-only data sync does not require a router.
 4. Enable and configure Codex or Bambu as needed. Both modules are off on first launch and do not automatically install software, log in, or connect to external services before you enable them.
 
 ## Features
 
-- **Codex status**: usage limits, usage, task status, plan progress, and user-visible messages from official interfaces. Missing data appears as `--`; seven-day Token usage uses integers or `k/m/b` units.
-- **Bambu printing status**: progress, temperatures, filament, layers, and camera images where supported, over the local network. Both the dashboard and device show information only; use the printer or an official Bambu app to control prints.
-- **Custom screen**: edit text, colors, images, and rings, then sync to the 466 × 466 display.
-- **Dotii expressions**: idle, blinking, connecting, working, completed, and failed animations, with configurable business-state mappings and durations.
-- **Device management**: USB/Bluetooth provisioning, USB/Wi-Fi sync, display and sleep settings, provisioning reset, login startup, and protected firmware flashing.
+- **Codex status**: usage limits, usage, and task status from official interfaces. Swipe left on the screen to view detailed conversation information.
+- **Bambu printing status**: 3D printer progress over the local network. Swipe left on the screen to view temperatures, filament, and other details, with camera images where supported.
+- **Custom screen**: edit text, colors, images, and rings, then sync to Dotii.
+- **Dotii expressions**: idle, blinking, connecting, working, completed, and failed animations.
 
-## Updating, verification, and removal
+## Updating and removal
 
 Quit the old app from the tray or menu bar before updating.
 
@@ -75,20 +72,6 @@ Quit the old app from the tray or menu bar before updating.
 Replacing or deleting the program preserves settings. Remove the settings folder manually only if you want a complete uninstall. It may contain a Bambu access code and device connection details; do not upload or share it.
 
 If a version updates device features, flash the firmware included with the new Management Center. Normal flashing preserves NVS settings. Switching computer platforms does not require reflashing the same firmware version.
-
-Windows: calculate the ZIP hash and compare it with `SHA256SUMS.txt` from the same Release:
-
-```powershell
-Get-FileHash .\DotiiManagementCenter-1.2-portable.zip -Algorithm SHA256
-```
-
-macOS: put the DMG and its `.dmg.sha256` file in the same folder, enter that folder, and run the following. The result should be `OK`:
-
-```bash
-shasum -a 256 -c DotiiManagementCenter-macOS-arm64-1.2.dmg.sha256
-```
-
-If verification fails, download again and do not use that file.
 
 ## Troubleshooting
 
@@ -140,11 +123,9 @@ Open logs from the tray or menu bar, or find `bridge.log` in the settings folder
 
 ## Data and security
 
-The dashboard and management API accept local access only. Device data requests require an access token. Wi-Fi passwords, Bambu access codes, and device tokens stay in local settings and must not be committed to a public repository. Flashing is restricted to identified devices and valid firmware packages.
+The dashboard and management API accept local access only. Device data requests require an access token. Wi-Fi passwords, Bambu access codes, and device tokens stay in local settings. Flashing is restricted to identified devices and valid firmware packages.
 
 Windows may show a firewall prompt for “Dotii 管理中心后台服务” when allowing local network access for the first time. Authorize the network types you actually use.
-
-An occasional reset after device sleep and temporarily missing Bluetooth advertising have occurred historically. Later regression checks did not reproduce them, but their root causes remain unconfirmed. Keep reproduction steps and logs if you encounter similar behavior.
 
 ## Development
 
